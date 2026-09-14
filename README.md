@@ -6,9 +6,6 @@ A realistic sand timer that sits on your Mac's desktop, above your other windows
   <img src="docs/hourglass.png" width="300" alt="The Sand Timer hourglass, mid-pour, with 14:30 remaining on the display in its base">
 </p>
 
-Every image here is drawn by the app itself — `SandTimer --snapshot out.png` renders
-the real view, so nothing in this README is a mockup.
-
 ## Download
 
 Grab the latest `.dmg` from [Releases](https://github.com/and/sand-timer/releases),
@@ -55,6 +52,11 @@ and a chime when time is up.
 ```sh
 xcrun notarytool store-credentials sandtimer-notary --apple-id <you> --team-id <TEAMID>
 ```
+
+The app draws its own images. `SandTimer --snapshot out.png` renders the view to a
+PNG — it takes `--minutes`, `--progress`, `--theme`, `--base`, `--angle`, `--shake`
+and `--dark` — and `--iconset` renders the app icon at every size macOS asks for,
+which is where `AppIcon.icns` comes from. The images in this README were made that way.
 
 Point `NOTARY_PROFILE` at a different profile to use another one, or set it empty to
 skip notarizing. It verifies what it produced rather than assuming: `stapler validate`
