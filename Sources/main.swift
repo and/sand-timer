@@ -158,9 +158,64 @@ func renderSnapshot(_ args: [String]) throws {
     try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: value("--snapshot")!))
 }
 
+/// `SandTimer --iconset Out.iconset` renders the app icon at every size macOS asks for, drawn with the app's own
+/// renderer: the purple hourglass, mid-pour, on a warm rounded-square tile. The build turns it into AppIcon.icns.
+func renderIconset(to directory: String) throws {
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    for (points, scales) in [(16, [1, 2]), (32, [1, 2]), (128, [1, 2]), (256, [1, 2]), (512, [1, 2])] {
+        for scale in scales {
+            let pixels = points * scale
+            let name = scale == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
+            try iconImage(pixels: pixels).representation(using: .png, properties: [:])!
+                .write(to: URL(fileURLWithPath: directory).appendingPathComponent(name))
+        }
+    }
+}
+
+private func iconImage(pixels: Int) -> NSBitmapImageRep {
+    let side = CGFloat(pixels)
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+                               samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                               bytesPerRow: 0, bitsPerPixel: 0)!
+    let cg = NSGraphicsContext(bitmapImageRep: rep)!.cgContext
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: false)
+
+    // The standard macOS tile: an 824-point rounded square centered on a 1024-point canvas, with a soft shadow.
+    let tile = CGRect(x: side * 100 / 1024, y: side * 100 / 1024, width: side * 824 / 1024, height: side * 824 / 1024)
+    let outline = NSBezierPath(roundedRect: tile, xRadius: tile.width * 0.225, yRadius: tile.width * 0.225)
+    NSGraphicsContext.saveGraphicsState()
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor(white: 0, alpha: 0.3)
+    shadow.shadowBlurRadius = side * 0.02
+    shadow.shadowOffset = NSSize(width: 0, height: -side * 0.01)
+    shadow.set()
+    NSColor.white.setFill()
+    outline.fill()
+    NSGraphicsContext.restoreGraphicsState()
+    NSGradient(starting: NSColor(srgbRed: 0.99, green: 0.97, blue: 0.93, alpha: 1),
+               ending: NSColor(srgbRed: 0.88, green: 0.84, blue: 0.78, alpha: 1))?.draw(in: outline, angle: -90)
+
+    // The hourglass, drawn upright and filling most of the tile's height.
+    let view = HourglassView(minutes: 25, themeIndex: 0, baseIndex: 0, sizeIndex: 2)
+    view.setPreview(progress: 0.42, running: true)
+    let scale = tile.height * 0.84 / view.bounds.height
+    cg.translateBy(x: tile.midX, y: tile.midY)
+    cg.scaleBy(x: scale, y: -scale)
+    cg.translateBy(x: -view.bounds.midX, y: -view.bounds.midY)
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: cg, flipped: true)
+    view.draw(view.bounds)
+    NSGraphicsContext.restoreGraphicsState()
+    return rep
+}
+
 let arguments = CommandLine.arguments
 if arguments.contains("--snapshot") {
     do { try renderSnapshot(arguments) } catch { print(error); exit(1) }
+    exit(0)
+}
+if let flag = arguments.firstIndex(of: "--iconset"), flag + 1 < arguments.count {
+    do { try renderIconset(to: arguments[flag + 1]) } catch { print(error); exit(1) }
     exit(0)
 }
 

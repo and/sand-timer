@@ -141,19 +141,21 @@ func timerViewTests() {
             }
         }
         test("the stream is thicker for short timers and finer for long ones") {
-            func streamWidth(minutes: Int) -> Int {
+            func streamWidth(minutes: Int) -> Double {
                 let view = HourglassView(minutes: minutes, themeIndex: 0, sizeIndex: 2)
                 view.setPreview(progress: 0.3, running: true)
                 let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
                 view.cacheDisplay(in: view.bounds, to: rep)
-                // Rows through the upper part of the lower bulb, where only the stream crosses. Grains racing down it
-                // widen single rows, so take the typical (median) width.
-                let widths = stride(from: 30, through: 80, by: 5).map { units -> Int in
+                // Rows through the upper part of the lower bulb, where only the stream crosses. Coverage is summed from each
+                // pixel's opacity so differences smaller than a pixel still count, and grains racing down the stream widen
+                // single rows, so take the typical (median) row.
+                let widths = stride(from: 20, through: 70, by: 5).map { units -> Double in
                     let row = Int((view.bounds.midY + CGFloat(units)) / view.bounds.height * CGFloat(rep.pixelsHigh))
-                    return (0..<rep.pixelsWide).filter { x in
-                        guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB), c.alphaComponent > 0.3 else { return false }
-                        return c.blueComponent > c.redComponent * 1.3 && c.blueComponent > c.greenComponent * 1.8
-                    }.count
+                    return (0..<rep.pixelsWide).reduce(0.0) { total, x in
+                        guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB),
+                              c.blueComponent > c.redComponent * 1.3 && c.blueComponent > c.greenComponent * 1.8 else { return total }
+                        return total + Double(c.alphaComponent)
+                    }
                 }.sorted()
                 return widths[widths.count / 2]
             }

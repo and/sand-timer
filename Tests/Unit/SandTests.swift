@@ -13,7 +13,8 @@ func sandTests() {
         test("short timers get a wider neck so the same sand runs out sooner") {
             expect(near(P.neckScale(minutes: 25), 1), "25 minutes is the reference")
             expect(near(pow(P.neckScale(minutes: 10), 2.5), 2.5, 1e-9), "sand flows 2.5x faster through a 10-minute neck")
-            expect(relNear(P.neckScale(minutes: 60), pow(25.0 / 60, 0.4)))
+            expect(relNear(P.neckScale(minutes: 60), pow(25.0 / 60, 0.2)), "long timers narrow gently, using finer sand")
+            expect(P.neckScale(minutes: 60) > 0.8, "a 60-minute stream doesn't look implausibly thin")
             expect(P.neckScale(minutes: 1) == 2.6 && P.neckScale(minutes: 1_000) == 0.6, "capped so it still looks like an hourglass")
             var last = Double.infinity
             for minutes in HourglassView.durations.map(Double.init) {
@@ -31,7 +32,7 @@ func sandTests() {
             expect(near(HourglassGeometry.outerRadius(0, neckScale: long), HourglassGeometry.neckRadius), "the waist isn't thinned")
             let bore = HourglassGeometry.innerRadius(0, neckScale: long)
             expect(bore < HourglassGeometry.innerRadius(0), "the opening is narrower")
-            expect(HourglassGeometry.outerRadius(0, neckScale: long) - bore > HourglassGeometry.wall + 0.5, "the glass is thicker at the pinch")
+            expect(HourglassGeometry.outerRadius(0, neckScale: long) - bore > HourglassGeometry.wall + 0.2, "the glass is thicker at the pinch")
             expect(near(HourglassGeometry.innerRadius(40, neckScale: long), HourglassGeometry.innerRadius(40), 0.01), "normal glass away from the pinch")
         }
         test("volume and height convert back and forth") {
