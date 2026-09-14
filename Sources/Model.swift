@@ -32,17 +32,12 @@ struct SandClock {
 
     func remaining(at now: Date) -> TimeInterval { (1 - progress(at: now)) * duration }
 
-    /// Labels printed on the glass: time left on top, time elapsed at the bottom; they always add up to the duration.
-    /// Short timers show minutes and seconds, since whole minutes are too coarse for them.
-    func glassLabels(progress: Double) -> (remaining: String, elapsed: String) {
-        let showSeconds = duration < 600
-        let unit = showSeconds ? 1.0 : 60.0
-        let total = Int((duration / unit).rounded())
-        let remaining = max(0, min(total, Int(((1 - progress) * duration / unit - 1e-9).rounded(.up))))
-        func label(_ value: Int) -> String {
-            showSeconds ? String(format: "%d:%02d", value / 60, value % 60) : "\(value)"
-        }
-        return (label(remaining), label(total - remaining))
+    /// Time left as m:ss, printed on the base, rounded up. Once the sand has run out (or before the first flip)
+    /// it shows the full duration instead, like the printed label on a real timer: what a flip will give you.
+    func remainingLabel(progress: Double) -> String {
+        let left = progress >= 1 ? duration : (1 - progress) * duration
+        let seconds = max(1, Int((left - 1e-9).rounded(.up)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     /// Turning the glass over: whatever had fallen is now on top.

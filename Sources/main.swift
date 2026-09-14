@@ -1,14 +1,26 @@
 import AppKit
+import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panel: NSPanel?
+    private var view: HourglassView?
+    /// Present only while the timer is hidden in the menu bar.
+    private var statusItem: NSStatusItem?
+    private var statusTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let defaults = UserDefaults.standard
+        // Start at Login is on by default; once set up (or changed from the menu) the user's choice is left alone.
+        if !defaults.bool(forKey: "loginItemConfigured") {
+            defaults.set(true, forKey: "loginItemConfigured")
+            do { try SMAppService.mainApp.register() } catch { NSLog("Sand Timer: couldn't enable Start at Login: \(error)") }
+            NSLog("Sand Timer: Start at Login status \(SMAppService.mainApp.status.rawValue)")
+        }
         let view = HourglassView(
             minutes: defaults.object(forKey: "minutes") as? Int ?? 30,
             themeIndex: defaults.integer(forKey: "theme"),
-            sizeIndex: defaults.object(forKey: "size") as? Int ?? 1
+            baseIndex: defaults.integer(forKey: "base"),
+            sizeIndex: HourglassView.mediumSizeIndex  // always starts at Medium; the Size menu changes it for this session
         )
 
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: view.frame.size),
@@ -23,9 +35,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = view
         panel.setFrameOrigin(initialOrigin(for: view.frame.size))
         view.restOnFloor()
-        panel.orderFrontRegardless()
+        view.onHide = { [weak self] in self?.hideToMenuBar() }
         view.startTicking()
         self.panel = panel
+        self.view = view
+        if defaults.bool(forKey: "hidden") { hideToMenuBar() } else { panel.orderFrontRegardless() }
+    }
+
+    /// Puts the timer away as an hourglass in the menu bar, with the time left beside it while it runs.
+    private func hideToMenuBar() {
+        guard statusItem == nil else { return }
+        panel?.orderOut(nil)
+        UserDefaults.standard.set(true, forKey: "hidden")
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.image = NSImage(systemSymbolName: "hourglass", accessibilityDescription: "Sand Timer")
+        item.button?.imagePosition = .imageLeading
+        let menu = NSMenu()
+        menu.delegate = self  // rebuilt each time it opens, so Pause/Resume matches the timer
+        item.menu = menu
+        statusItem = item
+
+        updateStatusTitle()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.updateStatusTitle() }
+        RunLoop.main.add(timer, forMode: .common)
+        statusTimer = timer
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        func add(_ title: String, _ action: Selector, target: AnyObject?) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = target
+            menu.addItem(item)
+        }
+        add("Show Sand Timer", #selector(showTimer), target: self)
+        if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
+        menu.addItem(.separator())
+        add("Quit Sand Timer", #selector(NSApplication.terminate(_:)), target: NSApp)
+    }
+
+    @objc private func togglePause() {
+        view?.togglePause()
+        updateStatusTitle()
+    }
+
+    @objc private func showTimer() {
+        statusTimer?.invalidate()
+        statusTimer = nil
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        statusItem = nil
+        UserDefaults.standard.set(false, forKey: "hidden")
+        view?.restOnFloor()
+        panel?.orderFrontRegardless()
+    }
+
+    private func updateStatusTitle() {
+        statusItem?.button?.title = view?.menuBarTime.map { " " + $0 } ?? ""
     }
 
     /// Where it was last left horizontally (if that's still on a screen), else the right side; the view then settles it
@@ -48,10 +114,11 @@ func renderSnapshot(_ args: [String]) throws {
         return args[i + 1]
     }
     let view = HourglassView(minutes: Int(value("--minutes") ?? "") ?? 30,
-                             themeIndex: Int(value("--theme") ?? "") ?? 0, sizeIndex: 2)
+                             themeIndex: Int(value("--theme") ?? "") ?? 0, baseIndex: Int(value("--base") ?? "") ?? 0, sizeIndex: 2)
     view.setPreview(progress: Double(value("--progress") ?? "") ?? 0.35, running: !args.contains("--stopped"))
     view.previewAngle = value("--angle").flatMap(Double.init)
-    if view.previewAngle != nil {  // room for a tilted glass
+    view.previewAgitation = value("--shake").flatMap(Double.init)
+    if let angle = view.previewAngle, abs(angle) > SandPhysics.slideThreshold {  // room for a turning glass
         let side = hypot(view.frame.width, view.frame.height).rounded(.up)
         view.frame.size = NSSize(width: side, height: side)
     }

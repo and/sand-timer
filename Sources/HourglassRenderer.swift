@@ -1,21 +1,40 @@
 import AppKit
 
+/// A sand color on a base (the caps): black like the purple product photo, or matching like the teal one.
 struct Theme {
+    enum Base: Int, CaseIterable {
+        case black, matching
+        var name: String { self == .black ? "Black" : "Matching" }
+    }
+
     let name: String
     let sand: NSColor
     let cap: NSColor
-    let darkPrint: Bool
+    /// Black caps get light print; colored caps get dark print.
+    let darkCap: Bool
 
     static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor {
         NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
     }
 
-    static let all: [Theme] = [
-        Theme(name: "Purple", sand: rgb(108, 46, 214), cap: rgb(22, 22, 24), darkPrint: true),
-        Theme(name: "Teal", sand: rgb(52, 190, 166), cap: rgb(98, 206, 186), darkPrint: false),
-        Theme(name: "Pink", sand: rgb(236, 98, 160), cap: rgb(244, 150, 192), darkPrint: false),
-        Theme(name: "Blue", sand: rgb(40, 118, 226), cap: rgb(22, 22, 24), darkPrint: true),
+    static let colors: [(name: String, sand: NSColor, matchingCap: NSColor)] = [
+        ("Purple", rgb(108, 46, 214), rgb(150, 108, 228)),
+        ("Teal", rgb(52, 190, 166), rgb(98, 206, 186)),
+        ("Pink", rgb(236, 98, 160), rgb(244, 150, 192)),
+        ("Blue", rgb(40, 118, 226), rgb(108, 162, 238)),
+        ("White", rgb(236, 233, 226), rgb(238, 238, 236)),
+        ("Black", rgb(34, 33, 36), rgb(44, 44, 48)),
     ]
+
+    init(color: Int, base: Base) {
+        let color = Self.colors[Self.colors.indices.contains(color) ? color : 0]
+        name = "\(color.name) on \(base.name)"
+        sand = color.sand
+        cap = base == .black ? Self.rgb(22, 22, 24) : color.matchingCap
+        // Judge by the cap itself: a matching cap can be dark too (black sand).
+        let brightness = (cap.usingColorSpace(.sRGB) ?? cap).brightnessComponent
+        darkCap = brightness < 0.5
+    }
 }
 
 /// What the sand is doing in one frame, in the glass's own frame of reference.
@@ -24,14 +43,24 @@ struct SandFrame {
     var flowStartProgress: Double
     /// 0 = sand shaken flat (just after a flip), 1 = crater and pile fully formed.
     var shapeAmount: Double = 1
-    /// Lean of the resting sand surfaces while the glass sways (radians).
-    var surfaceTilt: Double = 0
-    /// Lean of the falling stream; it always hangs straight down on screen.
+    /// How stirred up the sand is by shaking or a landing (0 = still, 1 = grains leaping).
+    var agitation: Double = 0
+    /// Lean of the falling stream from vertical (radians) while the timer is moved sharply.
     var streamTilt: Double = 0
     /// The falling stream as distances below the neck: its tail (where it has let go of the neck) and its front.
     var stream: (tail: Double, front: Double)?
     /// Sand outlines while the glass is turning over; replaces the resting shapes.
-    var turning: (upper: [SandPhysics.Point], lower: [SandPhysics.Point])?
+    var turning: SandPhysics.SettledSand?
+}
+
+/// The time display on the base ring. It faces the user, switches off while the timer is being flipped, and switches
+/// on again at the base that ends up at the bottom.
+struct BaseDisplay {
+    var text: String
+    /// 0 = switched off, 1 = fully lit.
+    var brightness: Double = 1
+    /// Turn of the text against the glass's rotation (radians), so it stays upright on screen while fading.
+    var rotation: Double = 0
 }
 
 /// Draws the timer in a 200 x 400 unit space (y grows downward, neck at y = 200).
@@ -70,15 +99,19 @@ final class HourglassRenderer {
     }
 
     /// Shadow on the desk, drawn upright even when the glass is tilted. Fades as the timer is lifted to flip.
-    func drawShadow(opacity: CGFloat) {
+    /// `groundOffset` is how far below the center the timer touches the ground, `footprint` how wide it sits on it.
+    func drawShadow(opacity: CGFloat, groundOffset: CGFloat = 200, footprint: CGFloat = 200) {
         guard opacity > 0.01 else { return }
+        let ground = neckY + groundOffset
         NSGradient(starting: NSColor(white: 0, alpha: 0.26 * opacity), ending: NSColor(white: 0, alpha: 0))?
-            .draw(in: NSBezierPath(ovalIn: CGRect(x: -4, y: 388, width: 208, height: 24)), relativeCenterPosition: .zero)
+            .draw(in: NSBezierPath(ovalIn: CGRect(x: cx - footprint / 2 - 4, y: ground - 12, width: footprint + 8, height: 24)),
+                  relativeCenterPosition: .zero)
         NSGradient(starting: NSColor(white: 0, alpha: 0.5 * opacity), ending: NSColor(white: 0, alpha: 0))?
-            .draw(in: NSBezierPath(ovalIn: CGRect(x: 14, y: 395, width: 172, height: 9)), relativeCenterPosition: .zero)
+            .draw(in: NSBezierPath(ovalIn: CGRect(x: cx - footprint / 2 + 14, y: ground - 5, width: footprint - 28, height: 9)),
+                  relativeCenterPosition: .zero)
     }
 
-    func draw(_ frame: SandFrame, time: CFTimeInterval, theme: Theme, topLabel: String, bottomLabel: String) {
+    func draw(_ frame: SandFrame, time: CFTimeInterval, theme: Theme, display: BaseDisplay) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let device = ctx.userSpaceToDeviceSpaceTransform
         let layers = cachedLayers(theme: theme, pixelScale: hypot(device.a, device.b))
@@ -86,26 +119,43 @@ final class HourglassRenderer {
 
         NSGraphicsContext.saveGraphicsState()
         innerPath.addClip()
+        let stir = CGFloat(frame.agitation)
+        // Shaken sand jostles in place.
+        let jostle = CGSize(width: CGFloat(sin(time * 37)) * stir * 1.2, height: CGFloat(cos(time * 43)) * stir * 1.2)
         if let turning = frame.turning {
-            for outline in [turning.upper, turning.lower] where outline.count > 2 {
+            for (index, outline) in [turning.upper, turning.lower].enumerated() where outline.count > 2 {
                 let path = NSBezierPath()
                 path.move(to: CGPoint(x: outline[0].x, y: outline[0].y))
                 outline.dropFirst().forEach { path.line(to: CGPoint(x: $0.x, y: $0.y)) }
                 path.close()
-                fillSand(path, theme: theme)
+                fillSand(path, theme: theme, jostle: jostle)
+                if stir > 0 { drawLeapingGrains(off: outline, gravity: turning.gravity, level: stir, seed: index * 100, theme: theme, time: time) }
             }
         } else {
             let top = topSurface(frame)
             let bottom = bottomSurface(frame)
-            if let top { fillSand(region(under: top, closingAt: neckY + 4, lowest: neckY + 4), theme: theme) }
-            if let bottom { fillSand(region(under: bottom, closingAt: bottomY + 8, lowest: bottomY + 1), theme: theme) }
+            // Shaken sand ripples as well.
+            if let top {
+                fillSand(region(under: top, closingAt: neckY + 4, lowest: neckY + 4, ripple: stir, time: time), theme: theme, jostle: jostle)
+            }
+            if let bottom {
+                fillSand(region(under: bottom, closingAt: bottomY + 8, lowest: bottomY + 1, ripple: stir, time: time), theme: theme, jostle: jostle)
+            }
             drawFlow(frame, top: top, bottom: bottom, theme: theme, time: time)
+            if stir > 0 {
+                for (index, surface) in [top, bottom].enumerated() {
+                    guard let surface, surface.halfWidth > 2 else { continue }
+                    drawLeapingGrains(level: stir, seed: index * 100, theme: theme, time: time) { spread, drift, hop in
+                        let offset = spread * surface.halfWidth + drift
+                        return CGPoint(x: self.cx + offset, y: surface.y(offset) - hop - 0.8)
+                    }
+                }
+            }
         }
         NSGraphicsContext.restoreGraphicsState()
 
         if let layers { drawLayer(layers.front) } else { drawGlassFront(theme: theme) }
-        drawPrint(topLabel, centerY: 86, theme: theme)
-        drawPrint(bottomLabel, centerY: 2 * neckY - 86, theme: theme)
+        drawBaseDisplay(display, theme: theme)
     }
 
     // MARK: Cached layers
@@ -243,6 +293,8 @@ final class HourglassRenderer {
         /// Offsets from the center where moving grains start and stop (crater: rim to funnel; pile: peak to foot).
         let slideFrom: CGFloat
         let slideTo: CGFloat
+        /// How far the sand's surface reaches either side of the center line.
+        let halfWidth: CGFloat
     }
 
     /// Upper bulb: a funnel crater, drawn into sand that was flat when it started flowing.
@@ -252,14 +304,14 @@ final class HourglassRenderer {
         let startLevel = max(flat, geo.topSandHeight(progress: frame.flowStartProgress))
         let tip = P.craterTip(volume: geo.sandVolume * (1 - frame.progress), flatLevel: startLevel)
         let slope = P.reposeSlope, amount = frame.shapeAmount
-        let lean = CGFloat(tan(frame.surfaceTilt)), neckY = self.neckY
+        let neckY = self.neckY
         let rim = max(0, min(G.bulbRadius, (startLevel - tip) / slope))
         return Surface(
             y: { offset in
                 let crater = max(0, min(startLevel, tip + slope * Double(abs(offset))))
-                return neckY - CGFloat(flat + (crater - flat) * amount) - offset * lean
+                return neckY - CGFloat(flat + (crater - flat) * amount)
             },
-            slideFrom: CGFloat(rim), slideTo: CGFloat(max(0, -tip / slope)))
+            slideFrom: CGFloat(rim), slideTo: CGFloat(max(0, -tip / slope)), halfWidth: CGFloat(G.innerRadius(flat)))
     }
 
     /// Lower bulb: a cone at the angle of repose, spreading to the walls as it grows.
@@ -269,30 +321,34 @@ final class HourglassRenderer {
         let flat = G.halfLength - geo.bottomSurfaceDistance(progress: frame.progress)
         let peak = P.pilePeak(volume: volume)
         let slope = P.reposeSlope, amount = frame.shapeAmount
-        let lean = CGFloat(tan(frame.surfaceTilt)), bottomY = self.bottomY
+        let bottomY = self.bottomY
         return Surface(
             y: { offset in
                 let pile = max(0, peak - slope * Double(abs(offset)))
-                return bottomY - CGFloat(flat + (pile - flat) * amount) - offset * lean
+                return bottomY - CGFloat(flat + (pile - flat) * amount)
             },
-            slideFrom: 0, slideTo: CGFloat(min(G.bulbRadius, peak / slope)))
+            slideFrom: 0, slideTo: CGFloat(min(G.bulbRadius, peak / slope)),
+            halfWidth: CGFloat(min(G.innerRadius(G.halfLength - flat), peak / slope)))
     }
 
     /// The area below a surface, closed off at `closingAt`; the glass clip trims it to the bulb.
-    private func region(under surface: Surface, closingAt closingY: CGFloat, lowest: CGFloat) -> NSBezierPath {
+    private func region(under surface: Surface, closingAt closingY: CGFloat, lowest: CGFloat,
+                        ripple: CGFloat, time: CFTimeInterval) -> NSBezierPath {
+        let t = CGFloat(time)
         let half: CGFloat = 60, samples = 120
         let path = NSBezierPath()
         path.move(to: CGPoint(x: cx - half, y: closingY))
         for i in 0...samples {
             let offset = -half + 2 * half * CGFloat(i) / CGFloat(samples)
-            path.line(to: CGPoint(x: cx + offset, y: min(lowest, surface.y(offset))))
+            let wave = ripple == 0 ? 0 : ripple * 1.6 * sin(offset * 0.7 + t * 43) * sin(offset * 0.23 - t * 29)
+            path.line(to: CGPoint(x: cx + offset, y: min(lowest, surface.y(offset) + wave)))
         }
         path.line(to: CGPoint(x: cx + half, y: closingY))
         path.close()
         return path
     }
 
-    private func fillSand(_ path: NSBezierPath, theme: Theme) {
+    private func fillSand(_ path: NSBezierPath, theme: Theme, jostle: CGSize = .zero) {
         let base = theme.sand
         let edge = base.blended(withFraction: 0.45, of: .black) ?? base
         let lit = base.blended(withFraction: 0.14, of: .white) ?? base
@@ -304,6 +360,7 @@ final class HourglassRenderer {
         path.addClip()
         let bounds = path.bounds
         let visible = speckles.filter { bounds.intersects($0.rect) }
+        ctx.translateBy(x: jostle.width, y: jostle.height)
         ctx.setFillColor((base.blended(withFraction: 0.4, of: .white) ?? base).withAlphaComponent(0.55).cgColor)
         ctx.fill(visible.filter(\.light).map(\.rect))
         ctx.setFillColor((base.blended(withFraction: 0.45, of: .black) ?? base).withAlphaComponent(0.5).cgColor)
@@ -334,7 +391,7 @@ final class HourglassRenderer {
             light.removeAll(); dark.removeAll()
         }
 
-        // The stream hangs straight down on screen, so in the glass's frame it leans against any sway.
+        // The stream bends from the neck when the timer is moved sharply, landing off-center on the pile.
         let lean = CGFloat(tan(frame.streamTilt))
         func landingY() -> CGFloat {
             guard let bottom else { return bottomY }
@@ -365,7 +422,7 @@ final class HourglassRenderer {
         if streamEnd - streamTop > 1 {
             ctx.saveGState()
             ctx.concatenate(CGAffineTransform(a: 1, b: 0, c: lean, d: 1, tx: -lean * neckY, ty: 0))
-            let wobble = CGFloat(sin(time * 23) * 0.25)
+            let wobble = CGFloat(sin(time * 23) * 0.25 + sin(time * 31) * frame.agitation * 1.5)
             let width: CGFloat = stream.tail > 0 ? 1.3 : 2.2
             ctx.setFillColor(theme.sand.withAlphaComponent(0.9).cgColor)
             ctx.fill(CGRect(x: cx - width / 2 + wobble, y: streamTop, width: width, height: streamEnd - streamTop))
@@ -395,23 +452,132 @@ final class HourglassRenderer {
         }
     }
 
+    /// Grains leaping off a sand surface that's tilted with the glass (on its side, or mid-turn): the surface is the
+    /// outline's edge facing against gravity, and grains hop straight up against gravity from points along it.
+    private func drawLeapingGrains(off outline: [SandPhysics.Point], gravity g: SandPhysics.Point, level: CGFloat,
+                                   seed: Int, theme: Theme, time: CFTimeInterval) {
+        let depth = outline.map { $0.x * g.x + $0.y * g.y }
+        guard let top = depth.min() else { return }
+        let surface = zip(outline, depth).filter { $0.1 - top < 0.5 }.map(\.0)
+        let along = SandPhysics.Point(x: -g.y, y: g.x)
+        let positions = surface.map { $0.x * along.x + $0.y * along.y }
+        guard let low = positions.min(), let high = positions.max(), high - low > 4 else { return }
+        let middle = (low + high) / 2, half = CGFloat(high - low) / 2
+        let upX = CGFloat(-g.x), upY = CGFloat(-g.y)
+        // A point on the surface line: `top` units along gravity, `middle` units along the surface.
+        let center = CGPoint(x: CGFloat(g.x * top + along.x * middle), y: CGFloat(g.y * top + along.y * middle))
+        drawLeapingGrains(level: level, seed: seed, theme: theme, time: time) { spread, drift, hop in
+            let offset = spread * half * 0.9 + drift
+            return CGPoint(x: center.x + CGFloat(along.x) * offset + upX * (hop + 0.8),
+                           y: center.y + CGFloat(along.y) * offset + upY * (hop + 0.8))
+        }
+    }
+
+    /// Grains thrown up off a heap by shaking or a landing: each hops on a little parabola and lands nearby.
+    /// Stronger jolts throw more grains, higher. Hops are slowed down about 3x from real life so they're visible.
+    /// `place` turns a grain's spread across the surface (-1...1), sideways drift and hop height into a position.
+    private func drawLeapingGrains(level: CGFloat, seed: Int, theme: Theme, time: CFTimeInterval,
+                                   place: (_ spread: CGFloat, _ drift: CGFloat, _ hop: CGFloat) -> CGPoint) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        var light: [CGRect] = [], dark: [CGRect] = []
+        for i in 0..<40 where Self.hash(i + seed, 11) < Double(level) * 1.15 {
+            let height = level * CGFloat(4 + 16 * Self.hash(i + seed, 12))
+            let period = 0.16 + 0.012 * Double(height)
+            let u = CGFloat(((time + Self.hash(i + seed, 13) * period) / period).truncatingRemainder(dividingBy: 1))
+            let point = place(CGFloat(Self.hash(i + seed, 14)) * 2 - 1, CGFloat(Self.hash(i + seed, 15) - 0.5) * 8 * u,
+                              height * 4 * u * (1 - u))
+            let rect = CGRect(x: point.x - 0.9, y: point.y - 0.9, width: 1.8, height: 1.8)
+            if i % 3 == 0 { light.append(rect) } else { dark.append(rect) }
+        }
+        ctx.setFillColor((theme.sand.blended(withFraction: 0.3, of: .black) ?? theme.sand).cgColor)
+        ctx.fill(dark)
+        ctx.setFillColor((theme.sand.blended(withFraction: 0.45, of: .white) ?? theme.sand).cgColor)
+        ctx.fill(light)
+    }
+
     // MARK: Print and caps
 
-    private func drawPrint(_ text: String, centerY: CGFloat, theme: Theme) {
-        let color = theme.darkPrint ? NSColor(white: 0.07, alpha: 0.92) : NSColor(white: 1, alpha: 0.96)
-        let shadow = NSShadow()
-        // A soft halo keeps the number readable when sand piles up behind it.
-        shadow.shadowColor = theme.darkPrint ? NSColor(white: 1, alpha: 0.7) : NSColor(white: 0, alpha: 0.35)
-        shadow.shadowBlurRadius = 3
-        shadow.shadowOffset = .zero
+    /// Time left on the bottom cap's upper ring (where the glass sits in the base), made to read as part of the plastic:
+    /// the letters wrap around the curved ring, take on its lighting and shine, and sit slightly into the surface.
+    /// Like a real display, it never draws outside the ring, and it fades as it switches on or off.
+    private func drawBaseDisplay(_ display: BaseDisplay, theme: Theme) {
+        guard display.brightness > 0.01, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let ring = CGRect(x: 19, y: 354, width: 162, height: 28)
+        let center = CGPoint(x: cx, y: 365.5)
+        var glyphs = wrappedLabelPath(display.text, ringCenterY: center.y, ringRadius: ring.width / 2)
+        if display.rotation != 0 {
+            var turn = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: display.rotation).translatedBy(x: -center.x, y: -center.y)
+            glyphs = glyphs.copy(using: &turn) ?? glyphs
+        }
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: ring.minX, y: ring.minY, width: ring.width, height: 23))  // the ring's face above the base disc
+        ctx.setAlpha(CGFloat(display.brightness))
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        defer {
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
+        func fill(offsetY: CGFloat, _ color: NSColor) {
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: offsetY)
+            ctx.addPath(glyphs)
+            ctx.setFillColor(color.cgColor)
+            ctx.fillPath()
+            ctx.restoreGState()
+        }
 
-        let big = NSAttributedString(string: text, attributes: [
-            // Monospaced digits so the label doesn't jitter as seconds tick.
-            .font: NSFont.monospacedDigitSystemFont(ofSize: text.count > 3 ? 36 : 44, weight: .regular),
-            .foregroundColor: color, .kern: -1.5, .shadow: shadow,
-        ])
-        let size = big.size()
-        big.draw(at: CGPoint(x: cx - size.width / 2, y: centerY - size.height / 2))
+        // Pressed into the plastic: light catches the lower lip, the upper edge falls into shadow.
+        fill(offsetY: 0.6, NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4))
+        fill(offsetY: -0.5, NSColor(white: 0, alpha: theme.darkCap ? 0.5 : 0.25))
+
+        // Ink shaded like the ring it's printed on: darker toward the edges, brightest where the ring catches the light.
+        let ink = theme.darkCap ? NSColor(white: 0.84, alpha: 1) : (theme.cap.blended(withFraction: 0.6, of: .black) ?? .black)
+        ctx.saveGState()
+        ctx.addPath(glyphs)
+        ctx.clip()
+        NSGradient(colorsAndLocations:
+            (ink.blended(withFraction: 0.5, of: .black) ?? ink, 0),
+            (ink.blended(withFraction: 0.2, of: .white) ?? ink, 0.24),
+            (ink, 0.6),
+            (ink.blended(withFraction: 0.55, of: .black) ?? ink, 1)
+        )?.draw(in: ring, angle: 0)
+        // The ring's shine runs straight across the letters.
+        NSGraphicsContext.current?.cgContext.setAlpha(theme.darkCap ? 0.35 : 0.25)
+        NSGradient(colors: [NSColor(white: 1, alpha: 0), NSColor(white: 1, alpha: 1), NSColor(white: 1, alpha: 0)])?
+            .draw(in: NSBezierPath(rect: CGRect(x: ring.minX + 8, y: ring.minY + ring.height * 0.35, width: ring.width - 16, height: 3)), angle: 0)
+        ctx.restoreGState()
+    }
+
+    /// Outlines of the label's glyphs, centered on the ring and wrapped around it: each character is pushed toward
+    /// the middle and narrowed by how far round the cylinder it sits, as seen from the front.
+    private func wrappedLabelPath(_ text: String, ringCenterY: CGFloat, ringRadius: CGFloat) -> CGPath {
+        // Monospaced digits so the label doesn't jitter as seconds tick.
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let baseline = ringCenterY + font.capHeight / 2
+        let path = CGMutablePath()
+        for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+            let count = CTRunGetGlyphCount(run)
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            CTRunGetGlyphs(run, CFRange(), &glyphs)
+            CTRunGetPositions(run, CFRange(), &positions)
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            let runFont = attributes[kCTFontAttributeName as String] as! CTFont  // CoreText always sets the run's font
+            for i in 0..<count {
+                var glyph = glyphs[i]
+                guard let outline = CTFontCreatePathForGlyph(runFont, glyph, nil) else { continue }
+                let advance = CGFloat(CTFontGetAdvancesForGlyphs(runFont, .horizontal, &glyph, nil, 1))
+                let around = (positions[i].x + advance / 2 - width / 2) / ringRadius
+                // Glyph outlines are drawn up from the baseline; flip them into this y-down space.
+                let transform = CGAffineTransform(translationX: cx + ringRadius * sin(around), y: baseline)
+                    .scaledBy(x: cos(around), y: -1)
+                    .translatedBy(x: -advance / 2, y: 0)
+                path.addPath(outline, transform: transform)
+            }
+        }
+        return path
     }
 
     private func drawCap(top: Bool, theme: Theme) {

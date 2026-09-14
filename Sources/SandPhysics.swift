@@ -8,6 +8,9 @@ enum SandPhysics {
 
     static let centerX = 100.0
     static let neckY = 200.0
+    static let earthGravity = 9.81
+    /// Real-world height of the timer, used to turn on-screen motion into physical motion.
+    static let timerHeightMeters = 0.15
     /// Slope of a sand heap at its angle of repose (about 27°).
     static let reposeSlope = 0.5
     /// Units per second squared: a grain falls the length of a bulb in about a quarter of a second.
@@ -56,6 +59,16 @@ enum SandPhysics {
         if volume >= craterVolume(tip: flatLevel, flatLevel: flatLevel, slope: slope) { return flatLevel }
         if volume <= 0 { return lowest }
         return bisect(lowest, flatLevel) { craterVolume(tip: $0, flatLevel: flatLevel, slope: slope) < volume }
+    }
+
+    /// How much of the falling sand's sound is grains striking glass rather than sand (0...1), given how much has fallen.
+    /// The first grains hit the bare bottom; once a small cone forms the stream lands on sand, though grains rolling off
+    /// the cone still tick against the uncovered glass until the pile spreads to the walls.
+    static func pourGlassiness(progress: Double) -> Double {
+        let peak = pilePeak(volume: geometry.sandVolume * max(0, progress))
+        let direct = max(0, 1 - peak / 6)
+        let rolling = 0.25 * max(0, 1 - (peak / reposeSlope) / G.innerRadius(G.halfLength))
+        return min(1, direct + rolling)
     }
 
     // MARK: Sand during a flip
@@ -119,31 +132,86 @@ enum SandPhysics {
         return area(clip(polygon, gravity: Point(x: 0, y: 1), offset: neckY + (upper ? -distance : distance)))
     }
 
-    /// Sand in each bulb (in the glass's own frame) while a flip that began at `progress` has turned the glass
-    /// `angle` radians. Nil before the sand lets go. The surface stays perpendicular to where gravity points,
-    /// lagging behind the glass so the sand avalanches along the wall, and each bulb's amount of sand
-    /// eases from its flat resting area before the flip to its flat resting area after it.
-    static func turningSand(angle: Double, progress p: Double) -> (upper: [Point], lower: [Point])? {
-        guard angle > slideThreshold else { return nil }
-        let t = min(1, (angle - slideThreshold) / (.pi - slideThreshold))
-        let slide = t * t * (3 - 2 * t)
-        let g = Point(x: sin(.pi * slide), y: cos(.pi * slide))
-        let geo = geometry
-        func sand(upper: Bool, from start: Double, to end: Double) -> [Point] {
-            let target = start + (end - start) * slide
+    /// Sand outlines in both bulbs, and the direction gravity points in the glass's frame (unit vector).
+    struct SettledSand {
+        var upper: [Point]
+        var lower: [Point]
+        var gravity: Point
+    }
+
+    /// Sand in each bulb with a flat surface perpendicular to gravity, which points `gravityAngle` radians
+    /// from straight down in the glass's frame.
+    static func settledSand(gravityAngle: Double, upperArea: Double, lowerArea: Double) -> SettledSand {
+        let g = Point(x: sin(gravityAngle), y: cos(gravityAngle))
+        func sand(upper: Bool, area target: Double) -> [Point] {
             guard target > 0.5 else { return [] }
             let polygon = bulbPolygon(upper: upper)
             return clip(polygon, gravity: g, offset: surfaceOffset(polygon, gravity: g, area: target))
         }
+        return SettledSand(upper: sand(upper: true, area: upperArea), lower: sand(upper: false, area: lowerArea), gravity: g)
+    }
+
+    /// How far the sand has slid (0...1) when the glass has tilted `angle` of the way to `fullAngle`.
+    /// Nil until the tilt passes the slide threshold; after that the sand lags the glass, avalanching along the wall.
+    private static func slide(angle: Double, fullAngle: Double) -> Double? {
+        guard angle > slideThreshold else { return nil }
+        let t = min(1, (angle - slideThreshold) / (fullAngle - slideThreshold))
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Sand in each bulb (in the glass's own frame) while a flip that began at `progress` has turned the glass
+    /// `angle` radians. Nil before the sand lets go. Each bulb's amount of sand eases from its flat resting area
+    /// before the flip to its flat resting area after it.
+    static func turningSand(angle: Double, progress p: Double) -> SettledSand? {
+        guard let slide = slide(angle: angle, fullAngle: .pi) else { return nil }
+        let geo = geometry
+        func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * slide }
         // After the turn the upper bulb is the lower one, and vice versa.
-        return (
-            sand(upper: true,
-                 from: flatSandArea(upper: true, surfaceDistance: geo.topSandHeight(progress: p)),
-                 to: flatSandArea(upper: false, surfaceDistance: geo.bottomSurfaceDistance(progress: 1 - p))),
-            sand(upper: false,
-                 from: flatSandArea(upper: false, surfaceDistance: geo.bottomSurfaceDistance(progress: p)),
-                 to: flatSandArea(upper: true, surfaceDistance: geo.topSandHeight(progress: 1 - p)))
-        )
+        return settledSand(
+            gravityAngle: .pi * slide,
+            upperArea: lerp(flatSandArea(upper: true, surfaceDistance: geo.topSandHeight(progress: p)),
+                            flatSandArea(upper: false, surfaceDistance: geo.bottomSurfaceDistance(progress: 1 - p))),
+            lowerArea: lerp(flatSandArea(upper: false, surfaceDistance: geo.bottomSurfaceDistance(progress: p)),
+                            flatSandArea(upper: true, surfaceDistance: geo.topSandHeight(progress: 1 - p))))
+    }
+
+    /// Sand while the glass is tipped `angle` radians (up to a quarter turn either way; positive topples clockwise)
+    /// onto its side to pause it. Lying down, nothing can pass the neck: each bulb keeps its own sand, spread along
+    /// the lower wall.
+    static func lyingSand(angle: Double, progress p: Double) -> SettledSand? {
+        guard let slide = slide(angle: abs(angle), fullAngle: .pi / 2) else { return nil }
+        return settledSand(
+            gravityAngle: (angle < 0 ? -1 : 1) * .pi / 2 * slide,
+            upperArea: flatSandArea(upper: true, surfaceDistance: geometry.topSandHeight(progress: p)),
+            lowerArea: flatSandArea(upper: false, surfaceDistance: geometry.bottomSurfaceDistance(progress: p)))
+    }
+
+    /// Half the height of the timer's outline (caps included) when tilted `angle` radians:
+    /// how far its center sits above the ground it rests on, in drawing units.
+    static func restingHalfHeight(angle: Double) -> Double { outlineHalfWidth * abs(sin(angle)) + 200 * abs(cos(angle)) }
+
+    /// Half the width of the timer's widest part, the round base discs (186 units across). Lying on its side,
+    /// the timer rests on their edges.
+    static let outlineHalfWidth = 93.0
+
+    /// Where the timer's center sits relative to the bottom corner it pivots on while toppling over, in drawing units
+    /// with y up. `side` is +1 when it topples clockwise (to the right, pivoting on its bottom-right corner), -1 to the left.
+    static func centerFromPivot(angle: Double, side: Double) -> (x: Double, y: Double) {
+        let x = -outlineHalfWidth * side, y = 200.0
+        return (x * cos(angle) + y * sin(angle), -x * sin(angle) + y * cos(angle))
+    }
+
+    /// Half the width of the timer's outline when tilted `angle` radians, in drawing units.
+    static func restingHalfWidth(angle: Double) -> Double { outlineHalfWidth * abs(cos(angle)) + 200 * abs(sin(angle)) }
+
+    /// The nearest center that keeps an outline of the given half size inside `box` (minX, maxX, minY, maxY),
+    /// the way a solid object in a box stops at its walls.
+    static func keptInside(x: Double, y: Double, halfWidth: Double, halfHeight: Double,
+                           box: (minX: Double, maxX: Double, minY: Double, maxY: Double)) -> (x: Double, y: Double) {
+        func clamp(_ value: Double, _ low: Double, _ high: Double) -> Double {
+            low > high ? (low + high) / 2 : min(max(value, low), high)
+        }
+        return (clamp(x, box.minX + halfWidth, box.maxX - halfWidth), clamp(y, box.minY + halfHeight, box.maxY - halfHeight))
     }
 
     // MARK: Helpers
@@ -185,6 +253,8 @@ struct Drop {
     private(set) var y: Double
     private(set) var velocity = 0.0
     private(set) var isResting: Bool
+    /// Speed (points per second) of a landing that happened during the last step, if any.
+    private(set) var impactSpeed: Double?
 
     /// Starting at or below the floor (dropped onto the Dock), it simply rests on the floor.
     init(y: Double, floor: Double) {
@@ -194,11 +264,13 @@ struct Drop {
     }
 
     mutating func step(dt: Double) {
+        impactSpeed = nil
         guard !isResting else { return }
         velocity -= Self.gravity * dt
         y += velocity * dt
         guard y <= floor else { return }
         y = floor
+        impactSpeed = -velocity
         let rebound = -velocity * Self.restitution
         if rebound < Self.minBounceSpeed {
             velocity = 0
@@ -209,31 +281,63 @@ struct Drop {
     }
 }
 
-/// The hourglass swinging on a damped spring when the window is dragged.
-struct Sway {
-    static let maxTilt = 0.14
-    static let stiffness = 120.0
-    static let damping = 5.5
-    /// Tilt per unit of sideways acceleration (points per second squared).
-    static let inertia = 0.0056
-    /// Seconds the sand surface takes to catch up with the glass.
-    static let sandLag = 0.08
+/// How far the falling stream bends when the timer is moved sharply sideways. The glass moves rigidly with the hand
+/// and the heaps are held by friction, but grains in mid-air aren't attached to anything: in the timer's frame,
+/// gravity seems to tilt away from the acceleration, so the stream swings the other way for a moment.
+struct StreamLean {
+    static let maxAngle = 0.3
+    /// Seconds for grains already in flight to be replaced by ones following the new direction.
+    static let response = 0.1
 
-    private(set) var tilt = 0.0
-    private(set) var velocity = 0.0
-    private(set) var sandTilt = 0.0
+    /// Lean from vertical in radians; positive leans the bottom of the stream to the right.
+    private(set) var angle = 0.0
 
-    var isSettled: Bool { abs(tilt) < 0.0005 && abs(velocity) < 0.002 && abs(sandTilt) < 0.0005 }
+    var isSettled: Bool { angle == 0 }
 
-    mutating func step(acceleration: Double, dt: Double) {
-        let torque = -Self.stiffness * tilt - Self.damping * velocity + Self.inertia * acceleration
-        velocity += torque * dt
-        tilt += velocity * dt
-        if abs(tilt) > Self.maxTilt {
-            tilt = tilt > 0 ? Self.maxTilt : -Self.maxTilt
-            velocity = 0
-        }
-        sandTilt += (tilt - sandTilt) * min(1, dt / Self.sandLag)
-        if isSettled && acceleration == 0 { self = Sway() }
+    /// `acceleration` is the timer's sideways acceleration in points per second squared (positive = right).
+    mutating func step(acceleration: Double, timerHeightPoints: Double, dt: Double) {
+        let physical = acceleration * SandPhysics.timerHeightMeters / timerHeightPoints
+        let target = max(-Self.maxAngle, min(Self.maxAngle, -atan(physical / SandPhysics.earthGravity)))
+        angle += (target - angle) * min(1, dt / Self.response)
+        if acceleration == 0 && abs(angle) < 0.0005 { angle = 0 }
+    }
+}
+
+/// How stirred up the sand is: 0 = still, 1 = grains leaping off the heaps.
+/// Friction holds a heap until the glass accelerates harder than the sand's slope can resist (g · tan(repose));
+/// shaking beyond that, or the jolt of landing after a drop, throws grains up and shakes the heaps flatter.
+struct Agitation {
+    /// Impact speed (m/s) that sets the sand fully leaping: a fall of about 45 cm.
+    static let fullImpactSpeed = 3.0
+    /// Seconds for the grains to settle once the jolting stops.
+    static let settleTime = 0.35
+
+    static var holdingAcceleration: Double { SandPhysics.earthGravity * SandPhysics.reposeSlope }
+
+    private(set) var level = 0.0
+
+    var isSettled: Bool { level == 0 }
+
+    /// `acceleration` is the size of the timer's physical acceleration in m/s².
+    mutating func shake(acceleration: Double) {
+        let excess = acceleration - Self.holdingAcceleration
+        guard excess > 0 else { return }
+        level = max(level, min(1, excess / (2 * SandPhysics.earthGravity)))
+    }
+
+    /// `speed` is the physical speed (m/s) at which the timer hit the ground.
+    mutating func impact(speed: Double) {
+        level = max(level, min(1, speed / Self.fullImpactSpeed))
+    }
+
+    mutating func step(dt: Double) {
+        level *= exp(-dt / Self.settleTime)
+        if level < 0.01 { level = 0 }
+    }
+
+    /// The real-world impact speed for a window that landed at `windowSpeed` (points/s) under `Drop.gravity`:
+    /// the same fall height, but under real gravity, on a timer where one point is `metersPerPoint`.
+    static func impactSpeed(windowSpeed: Double, metersPerPoint: Double) -> Double {
+        windowSpeed * (SandPhysics.earthGravity * metersPerPoint / Drop.gravity).squareRoot()
     }
 }

@@ -52,23 +52,22 @@ resized.setDuration(200, at: at(50))
 check(near(resized.progress(at: at(50)), 0.5), "duration change keeps progress")
 check(near(resized.progress(at: at(150)), 1), "new duration applies to the rest")
 
-// Minute counts shown on the glass.
+// Remaining time shown on the base.
 let thirty = SandClock(duration: 1800)
-check(thirty.glassLabels(progress: 0) == ("30", "0"), "full top shows 30 left, 0 elapsed")
-check(thirty.glassLabels(progress: 1) == ("0", "30"), "done shows 0 left, 30 elapsed")
-check(thirty.glassLabels(progress: 0.5) == ("15", "15"), "exact half")
-check(thirty.glassLabels(progress: 10.0 / 1800) == ("30", "0"), "first minute still shows 30 left")
-check(thirty.glassLabels(progress: 61.0 / 1800) == ("29", "1"), "after a minute and a second")
+check(thirty.remainingLabel(progress: 0) == "30:00", "full timer")
+check(thirty.remainingLabel(progress: 1) == "30:00", "when the sand has run out, shows what the timer holds")
+check(thirty.remainingLabel(progress: 0.5) == "15:00", "exact half")
+check(thirty.remainingLabel(progress: 61.0 / 1800) == "28:59", "after a minute and a second")
+check(thirty.remainingLabel(progress: 0.9999) == "0:01", "the last second counts down to 0:01")
+check(SandClock(duration: 3600).remainingLabel(progress: 0) == "60:00", "an hour")
 
-// Short timers show seconds, so flipping mid-run doesn't round both halves to the same minute.
 var two = SandClock(duration: 120)
 two.restart(at: t0)
-check(two.glassLabels(progress: two.progress(at: at(50))) == ("1:10", "0:50"), "2-min timer at 50s")
+check(two.remainingLabel(progress: two.progress(at: at(50))) == "1:10", "2-min timer at 50s")
 two.flip(at: at(50))
-check(two.glassLabels(progress: two.progress(at: at(50))) == ("0:50", "1:10"), "flipped at 50s swaps the labels")
-check(two.glassLabels(progress: two.progress(at: at(100))) == ("0:00", "2:00"), "flipped timer finishes after 50s")
-check(SandClock(duration: 120).glassLabels(progress: 0) == ("2:00", "0:00"), "full 2-min timer")
-check(SandClock(duration: 600).glassLabels(progress: 0) == ("10", "0"), "10 minutes and up shows whole minutes")
+check(two.remainingLabel(progress: two.progress(at: at(50))) == "0:50", "flipping at 50s leaves 50s on top")
+check(two.remainingLabel(progress: two.progress(at: at(99.5))) == "0:01", "flipped timer is about to finish after 50s")
+check(two.remainingLabel(progress: two.progress(at: at(100))) == "2:00", "once finished, back to showing its full two minutes")
 
 // Geometry.
 let geo = HourglassGeometry()
@@ -137,6 +136,16 @@ let lastTip = P.craterTip(volume: P.craterVolume(tip: flat, flatLevel: flat) * 0
 check(lastTip >= 0 && lastTip < HourglassGeometry.taperLength / 2, "near the end the sand sits low in the funnel")
 
 check(relNear(P.fallDistance(after: 0.25), 150), "stream front falls a bulb length in a quarter second")
+
+check(P.pourGlassiness(progress: 0) == 1, "the first grains strike the bare glass bottom")
+check(P.pourGlassiness(progress: 0.05) < 0.5, "once a cone has formed, the stream mostly lands on sand")
+check(P.pourGlassiness(progress: 0.6) == 0, "a pile covering the bottom leaves no glass to hit")
+var lastGlassiness = 1.0
+for i in 0...40 {
+    let g = P.pourGlassiness(progress: Double(i) / 40)
+    check(g <= lastGlassiness + 1e-12, "the sound only gets softer as sand builds up")
+    lastGlassiness = g
+}
 check(P.fallDistance(after: -1) == 0, "no fall before release")
 
 let square = [P.Point(x: 0, y: 0), P.Point(x: 10, y: 0), P.Point(x: 10, y: 10), P.Point(x: 0, y: 10)]
@@ -166,13 +175,57 @@ for p in [0.0, 0.35, 1.0] {
     }
 }
 
-var sway = Sway()
-sway.step(acceleration: 3_000, dt: 1.0 / 60)
-check(sway.tilt > 0, "accelerating right tips the glass clockwise")
-for _ in 0..<60 { sway.step(acceleration: 60_000, dt: 1.0 / 60) }
-check(abs(sway.tilt) <= Sway.maxTilt, "tilt is clamped")
-for _ in 0..<(60 * 4) { sway.step(acceleration: 0, dt: 1.0 / 60) }
-check(sway.isSettled && sway.tilt == 0, "sway settles back to upright")
+// Pausing lays the timer on its side.
+check(P.lyingSand(angle: 0.3, progress: 0.4) == nil, "sand holds still as the timer starts to tip")
+check(near(P.restingHalfHeight(angle: 0), 200) && near(P.restingHalfHeight(angle: .pi / 2), 93),
+      "lying down, the timer rests on the edge of its base discs")
+for p in [0.2, 0.7] {
+    guard let lying = P.lyingSand(angle: .pi / 2, progress: p) else { check(false, "lying sand exists"); continue }
+    let upperArea = P.flatSandArea(upper: true, surfaceDistance: geo.topSandHeight(progress: p))
+    let lowerArea = P.flatSandArea(upper: false, surfaceDistance: geo.bottomSurfaceDistance(progress: p))
+    check(relNear(P.area(lying.upper), upperArea, 1e-2) && relNear(P.area(lying.lower), lowerArea, 1e-2),
+          "on its side each bulb keeps its own sand at \(p)")
+    let meanX = lying.lower.map(\.x).reduce(0, +) / Double(lying.lower.count)
+    check(meanX > P.centerX + 10, "the sand lies along the wall that's now underneath at \(p)")
+    check(lying.upper.allSatisfy { $0.y <= P.neckY + 1e-6 } && lying.lower.allSatisfy { $0.y >= P.neckY - 1e-6 },
+          "no sand crosses the neck while lying down at \(p)")
+}
+
+// Knocked over, it topples about its bottom corner to whichever side it falls.
+let rightStart = P.centerFromPivot(angle: 0, side: 1), rightEnd = P.centerFromPivot(angle: .pi / 2, side: 1)
+check(near(rightStart.x, -93) && near(rightStart.y, 200), "standing, the center is up and in from the right corner")
+check(near(rightEnd.x, 200) && near(rightEnd.y, 93), "toppled right, it lies to the right of that corner")
+let leftEnd = P.centerFromPivot(angle: -.pi / 2, side: -1)
+check(near(leftEnd.x, -200) && near(leftEnd.y, 93), "toppled left, it lies to the left of its left corner")
+for a in stride(from: 0.0, through: .pi / 2, by: 0.2) {
+    check(near(P.centerFromPivot(angle: a, side: 1).y, P.restingHalfHeight(angle: a), 1e-9), "the pivot corner stays on the ground at \(a)")
+}
+if let leftLying = P.lyingSand(angle: -.pi / 2, progress: 0.3) {
+    let meanX = leftLying.upper.map(\.x).reduce(0, +) / Double(leftLying.upper.count)
+    check(meanX < P.centerX - 10, "fallen to the left, the sand lies along the other wall")
+} else { check(false, "sand lies down when toppled left") }
+
+// The screen is a box the timer can't leave.
+let box = (minX: 0.0, maxX: 1440.0, minY: 0.0, maxY: 870.0)
+let inside = P.keptInside(x: 700, y: 400, halfWidth: 100, halfHeight: 200, box: box)
+check(inside.x == 700 && inside.y == 400, "free to move inside the box")
+let pushed = P.keptInside(x: 1500, y: -50, halfWidth: 100, halfHeight: 200, box: box)
+check(pushed.x == 1340 && pushed.y == 200, "stops at the right wall and the floor")
+let ceiling = P.keptInside(x: 20, y: 900, halfWidth: 100, halfHeight: 200, box: box)
+check(ceiling.x == 100 && ceiling.y == 670, "stops at the left wall and the ceiling")
+check(near(P.restingHalfWidth(angle: 0), 93) && near(P.restingHalfWidth(angle: .pi / 2), 200),
+      "standing it's as wide as its base discs; lying down, as wide as it is tall")
+
+// Moving the timer sharply bends the falling stream, never the glass.
+var lean = StreamLean()
+for _ in 0..<60 { lean.step(acceleration: 3_000, timerHeightPoints: 300, dt: 1.0 / 60) }
+check(lean.angle < 0, "accelerating right leaves the stream trailing to the left")
+check(near(lean.angle, -atan(3_000 * SandPhysics.timerHeightMeters / 300 / SandPhysics.earthGravity), 1e-3),
+      "steady acceleration bends it by the tilt of apparent gravity")
+for _ in 0..<60 { lean.step(acceleration: 1_000_000, timerHeightPoints: 300, dt: 1.0 / 60) }
+check(abs(lean.angle) <= StreamLean.maxAngle, "bend is limited")
+for _ in 0..<(60 * 2) { lean.step(acceleration: 0, timerHeightPoints: 300, dt: 1.0 / 60) }
+check(lean.isSettled, "stream hangs straight again once the timer stops accelerating")
 
 // Gravity on the window.
 var drop = Drop(y: 700, floor: 50)
@@ -188,7 +241,33 @@ check(drop.isResting && drop.y == 50, "comes to rest on the floor")
 check(lowest >= 50, "never sinks below the floor")
 check(bounced, "bounces a little on landing")
 check(Double(steps) / 60 < 1.5, "settles quickly")
+var impacts: [Double] = []
+var bouncing = Drop(y: 650, floor: 50)
+while !bouncing.isResting { bouncing.step(dt: 1.0 / 240); if let v = bouncing.impactSpeed { impacts.append(v) } }
+check(relNear(impacts.first ?? 0, (2 * Drop.gravity * 600).squareRoot(), 0.02), "first landing speed matches the drop height")
+check(impacts.count >= 2 && impacts[1] < impacts[0] * 0.5, "each bounce lands softer")
 let fromDock = Drop(y: 20, floor: 50)
 check(fromDock.isResting && fromDock.y == 50, "let go below the floor, it sits on the floor")
+
+// Shaking and landing stir up the sand.
+var stirred = Agitation()
+stirred.shake(acceleration: 3)
+check(stirred.isSettled, "a gentle move doesn't disturb the heaps")
+stirred.shake(acceleration: 15)
+check(stirred.level > 0 && stirred.level < 1, "a hard shake sets grains moving")
+for _ in 0..<(60 * 3) { stirred.step(dt: 1.0 / 60) }
+check(stirred.isSettled, "grains settle once the shaking stops")
+let metersPerPoint = SandPhysics.timerHeightMeters / 300
+func landing(fromHeight points: Double) -> Double {
+    var a = Agitation()
+    a.impact(speed: Agitation.impactSpeed(windowSpeed: (2 * Drop.gravity * points).squareRoot(), metersPerPoint: metersPerPoint))
+    return a.level
+}
+check(relNear(Agitation.impactSpeed(windowSpeed: (2 * Drop.gravity * 400).squareRoot(), metersPerPoint: metersPerPoint),
+              (2 * SandPhysics.earthGravity * 400 * metersPerPoint).squareRoot()),
+      "impact speed is what a real fall from that height would give")
+check(landing(fromHeight: 20) < landing(fromHeight: 200) && landing(fromHeight: 200) < landing(fromHeight: 800),
+      "a higher drop jolts the sand harder")
+check(landing(fromHeight: 5000) == 1, "jolt is capped")
 
 if failures == 0 { print("All tests passed") } else { print("\(failures) failure(s)"); exit(1) }

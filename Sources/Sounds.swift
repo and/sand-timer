@@ -5,12 +5,64 @@ enum Sounds {
     /// Sand rustling against the glass while it turns, then a soft thud as the cap lands.
     static let flip: NSSound? = NSSound(data: wav(samples: synthesizeFlip(landingAt: 0.58)))
 
-    /// A faint, seamless loop of grains pattering onto the pile.
-    static let grains: NSSound? = {
-        let sound = NSSound(data: wav(samples: synthesizeGrains(seconds: 4)))
+    /// Standing a paused timer back up: sand rustling back into place, then the base settling on the desk as the
+    /// stand-up finishes (it takes `standUpDuration` seconds), a little softer than a flip.
+    static func standUp(standUpDuration: Double) -> NSSound? {
+        if standUpSound == nil {
+            standUpSound = NSSound(data: wav(samples: synthesizeFlip(landingAt: standUpDuration - 0.02)))
+            standUpSound?.volume = 0.75
+        }
+        return standUpSound
+    }
+    private static var standUpSound: NSSound?
+
+    /// Falling sand, as two faint seamless loops blended by what the stream lands on: bare glass at first, then the
+    /// growing pile. Both run together while sand falls; `setPour` sets the mix.
+    static let pourOnGlass: NSSound? = looping(synthesizeGrains(seconds: 4))
+    static let pourOnSand: NSSound? = looping(synthesizeSoftPour(seconds: 4))
+
+    /// Starts, stops and mixes the falling-sand loops. `glassiness` is how much of the sound is grains hitting glass
+    /// (1 = the bottom is bare) rather than sand landing on sand, which is softer.
+    static func setPour(active: Bool, glassiness: Double) {
+        guard let glass = pourOnGlass, let sand = pourOnSand else { return }
+        guard active else {
+            if glass.isPlaying { glass.stop() }
+            if sand.isPlaying { sand.stop() }
+            return
+        }
+        glass.volume = Float(glassiness)
+        sand.volume = Float((1 - glassiness) * 0.7)
+        if !glass.isPlaying { glass.play() }
+        if !sand.isPlaying { sand.play() }
+    }
+
+    private static func looping(_ samples: [Float]) -> NSSound? {
+        let sound = NSSound(data: wav(samples: samples))
         sound?.loops = true
         return sound
+    }
+
+    /// Sand being shaken about inside the glass, looped. Its volume is set from how stirred up the sand is.
+    static let shake: NSSound? = {
+        let sound = NSSound(data: wav(samples: synthesizeShake(seconds: 2)))
+        sound?.loops = true
+        sound?.volume = 0
+        return sound
     }()
+
+    /// The timer landing on a desk: a hollow plastic knock from the base, a faint rattle of the glass, and grains
+    /// resettling inside.
+    static let fall: NSSound? = NSSound(data: wav(samples: synthesizeFall()))
+
+    /// Impacts slower than this (m/s) are too gentle to hear.
+    static let quietestFall = 0.15
+
+    /// Plays the landing sound, louder for harder impacts. Each landing gets its own copy so quick bounces can overlap.
+    static func playFall(impactSpeed: Double) {
+        guard impactSpeed >= quietestFall, let sound = fall?.copy() as? NSSound else { return }
+        sound.volume = Float(min(1, 0.12 + impactSpeed / 2.5))
+        sound.play()
+    }
 
     private struct Noise {
         var seed: UInt32
@@ -53,33 +105,160 @@ enum Sounds {
         return samples
     }
 
-    static func synthesizeGrains(seconds: Double, sampleRate: Double = 44_100) -> [Float] {
-        let count = Int(seconds * sampleRate)
+    static func synthesizeFall(sampleRate: Double = 44_100) -> [Float] {
+        let count = Int(0.5 * sampleRate)
         var samples = [Float](repeating: 0, count: count)
-        var noise = Noise(seed: 0x9ABC_DEF0)
-
-        // A barely-there hiss underneath, so the ticks don't sound isolated.
-        var previous: Float = 0
+        var noise = Noise(seed: 0x51F0_A11D)
         for i in 0..<count {
-            let white = noise.next()
-            samples[i] = (white - previous) * 0.004
-            previous = white
+            let t = Double(i) / sampleRate
+            // Knock: a noisy strike, then the hollow plastic base and the desk ringing briefly.
+            let strike = t < 0.004 ? Double(noise.next()) * 0.5 * (1 - t / 0.004) : 0
+            let base = sin(2 * .pi * 170 * t) * 0.5 * exp(-t / 0.035) + sin(2 * .pi * 540 * t) * 0.22 * exp(-t / 0.014)
+            let desk = sin(2 * .pi * 78 * t) * 0.3 * exp(-t / 0.06)
+            let click = sin(2 * .pi * 1_250 * t) * 0.12 * exp(-t / 0.006)
+            // Glass: a faint high rattle as the bulbs shake in the frame.
+            let glass = (sin(2 * .pi * 3_150 * t) + sin(2 * .pi * 4_730 * t) * 0.7) * 0.03 * exp(-t / 0.045)
+            samples[i] = Float(strike + base + desk + click + glass) * 0.85
         }
-
-        // Individual grains: tiny ticks with a slight glassy ring. Most are soft, a few land harder.
-        // None cross the end of the buffer, so the loop has no audible seam.
-        let length = Int(0.006 * sampleRate)
-        for _ in 0..<Int(seconds * 80) {
-            let start = Int(noise.unit() * Double(count - length))
-            let amplitude = Float(pow(noise.unit(), 3)) * 0.1 + 0.008
-            let ring = 2_500 + noise.unit() * 4_500
-            for j in 0..<length {
-                let dt = Double(j) / sampleRate
-                let tone = Float(sin(2 * .pi * ring * dt)) * 0.4 + noise.next() * 0.6
-                samples[start + j] += amplitude * Float(exp(-dt / 0.0009)) * tone
+        // Grains resettling: a spray of tiny ticks that thins out over a quarter second.
+        let tick = Int(0.005 * sampleRate)
+        for _ in 0..<70 {
+            let delay = pow(noise.unit(), 2) * 0.28
+            let start = Int((0.01 + delay) * sampleRate)
+            guard start + tick < count else { continue }
+            let amplitude = Float(0.05 * (1 - delay / 0.3) * (0.3 + noise.unit()))
+            for j in 0..<tick {
+                samples[start + j] += amplitude * Float(exp(-Double(j) / sampleRate / 0.0009)) * noise.next()
             }
         }
         return samples
+    }
+
+    /// Fine sand pouring onto a heap inside a glass vessel. Thousands of grains land every second, so none stands out,
+    /// and each is a hard, very short tick; the glass around them rings faintly at its own fixed notes. No soft rustle
+    /// underneath (that sounds like paper), and no per-grain pitch (that sounds like dripping water).
+    static func synthesizeGrains(seconds: Double, sampleRate: Double = 44_100) -> [Float] {
+        let count = Int(seconds * sampleRate)
+        var noise = Noise(seed: 0x9ABC_DEF0)
+        var raw = [Float](repeating: 0, count: count)
+        let click = Int(0.001 * sampleRate)
+        // Many evenly soft grains rather than fewer uneven ones, so no single tick pops out.
+        for _ in 0..<Int(seconds * 2_400) {
+            addClick(to: &raw, at: Int(noise.unit() * Double(count)), length: click, amplitude: Float(0.8 + 0.4 * noise.unit()),
+                     decay: 0.00008 + 0.00012 * noise.unit(), sampleRate: sampleRate, noise: &noise)
+        }
+        for i in 0..<count { raw[i] += noise.next() * 0.08 }
+
+        var sound = glassy(bandLimitedLoop(raw, highPass: 1_200, lowPass: 12_000, sampleRate: sampleRate), ring: 0.12, sampleRate: sampleRate)
+        // The stream's level wavers a little. Both cycles fit the loop a whole number of times, so it repeats seamlessly.
+        let slow = 2 * Double.pi / seconds
+        for i in 0..<count {
+            let t = Double(i) / sampleRate
+            sound[i] *= Float(1 + 0.18 * sin(slow * 2 * t) + 0.1 * sin(slow * 7 * t + 1.3))
+        }
+        return normalized(sound, rms: 0.006)
+    }
+
+    /// Sand landing on sand: the same dense, unpitched grains, but each impact is cushioned, so the ticks are softer and
+    /// duller and there's no glass ring, just a gentle hush.
+    static func synthesizeSoftPour(seconds: Double, sampleRate: Double = 44_100) -> [Float] {
+        let count = Int(seconds * sampleRate)
+        var noise = Noise(seed: 0x50F7_5A2D)
+        var raw = [Float](repeating: 0, count: count)
+        let click = Int(0.003 * sampleRate)
+        for _ in 0..<Int(seconds * 2_400) {
+            addClick(to: &raw, at: Int(noise.unit() * Double(count)), length: click, amplitude: Float(0.8 + 0.4 * noise.unit()),
+                     decay: 0.0003 + 0.0003 * noise.unit(), sampleRate: sampleRate, noise: &noise)
+        }
+        for i in 0..<count { raw[i] += noise.next() * 0.2 }
+        var sound = bandLimitedLoop(raw, highPass: 400, lowPass: 4_500, sampleRate: sampleRate)
+        let slow = 2 * Double.pi / seconds
+        for i in 0..<count {
+            let t = Double(i) / sampleRate
+            sound[i] *= Float(1 + 0.18 * sin(slow * 2 * t + 0.7) + 0.1 * sin(slow * 5 * t))
+        }
+        return normalized(sound, rms: 0.006)
+    }
+
+    /// Sand thrown about inside a glass vessel: clumps of grains strike the glass together in sharp little bursts,
+    /// loose grains tick in between, and the glass rings faintly at its own notes. Unpitched grains, no papery rustle.
+    static func synthesizeShake(seconds: Double, sampleRate: Double = 44_100) -> [Float] {
+        let count = Int(seconds * sampleRate)
+        var noise = Noise(seed: 0x5A4D_5EED)
+        var raw = [Float](repeating: 0, count: count)
+        let click = Int(0.001 * sampleRate)
+        for _ in 0..<Int(seconds * 40) {
+            let center = noise.unit() * Double(count)
+            for _ in 0..<Int(20 + 40 * noise.unit()) {
+                let start = Int(center + (noise.unit() - 0.5) * 0.016 * sampleRate + Double(count)) % count
+                addClick(to: &raw, at: start, length: click, amplitude: Float(0.5 + noise.unit()),
+                         decay: 0.00006 + 0.00008 * noise.unit(), sampleRate: sampleRate, noise: &noise)
+            }
+        }
+        for _ in 0..<Int(seconds * 800) {
+            addClick(to: &raw, at: Int(noise.unit() * Double(count)), length: click, amplitude: Float(0.2 + 0.3 * noise.unit()),
+                     decay: 0.0001, sampleRate: sampleRate, noise: &noise)
+        }
+        let sound = glassy(bandLimitedLoop(raw, highPass: 1_500, lowPass: 13_000, sampleRate: sampleRate), ring: 0.18, sampleRate: sampleRate)
+        return normalized(sound, rms: 0.03)
+    }
+
+    // MARK: Building blocks
+
+    /// Adds one grain: a noise burst dying away in `decay` seconds, wrapping around the end so loops have no seam.
+    private static func addClick(to buffer: inout [Float], at start: Int, length: Int, amplitude: Float, decay: Double,
+                                 sampleRate: Double, noise: inout Noise) {
+        for j in 0..<length {
+            buffer[(start + j) % buffer.count] += amplitude * Float(exp(-Double(j) / sampleRate / decay)) * noise.next()
+        }
+    }
+
+    /// High- and low-pass filtered, run over the loop twice so the filters' state wraps around and the seam stays clean.
+    private static func bandLimitedLoop(_ raw: [Float], highPass: Double, lowPass: Double, sampleRate: Double) -> [Float] {
+        let high = Float(exp(-2 * Double.pi * highPass / sampleRate))
+        let low = Float(exp(-2 * Double.pi * lowPass / sampleRate))
+        var out = [Float](repeating: 0, count: raw.count)
+        var previousIn: Float = 0, highOut: Float = 0, lowOut: Float = 0
+        for pass in 0..<2 {
+            for i in raw.indices {
+                highOut = high * (highOut + raw[i] - previousIn)
+                previousIn = raw[i]
+                lowOut = (1 - low) * highOut + low * lowOut
+                if pass == 1 { out[i] = lowOut }
+            }
+        }
+        return out
+    }
+
+    /// Mixes in the ring of a small glass vessel: the same few resonant notes, excited by every hit and dying within a
+    /// few hundredths of a second. `ring` is how much of the result is the glass.
+    private static func glassy(_ dry: [Float], ring: Float, sampleRate: Double) -> [Float] {
+        let modes: [(frequency: Double, decay: Double)] = [(2_350, 0.014), (3_900, 0.010), (6_100, 0.007)]
+        var wet = [Float](repeating: 0, count: dry.count)
+        for mode in modes {
+            let r = exp(-1 / (mode.decay * sampleRate))
+            let a1 = Float(2 * r * cos(2 * Double.pi * mode.frequency / sampleRate)), a2 = Float(-r * r)
+            var y1: Float = 0, y2: Float = 0
+            var resonance = [Float](repeating: 0, count: dry.count)
+            for pass in 0..<2 {  // twice round the loop, so the ringing carries over the seam
+                for i in dry.indices {
+                    let y = dry[i] + a1 * y1 + a2 * y2
+                    y2 = y1
+                    y1 = y
+                    if pass == 1 { resonance[i] = y }
+                }
+            }
+            let scale = rms(dry) / max(rms(resonance), 1e-9) / Float(modes.count)
+            for i in wet.indices { wet[i] += resonance[i] * scale }
+        }
+        return dry.indices.map { dry[$0] * (1 - ring) + wet[$0] * ring }
+    }
+
+    private static func rms(_ x: [Float]) -> Float { (x.reduce(0) { $0 + $1 * $1 } / Float(max(1, x.count))).squareRoot() }
+
+    private static func normalized(_ x: [Float], rms target: Float) -> [Float] {
+        let level = rms(x)
+        return level > 0 ? x.map { $0 * target / level } : x
     }
 
     /// 16-bit mono PCM WAV.
