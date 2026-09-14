@@ -6,7 +6,11 @@ final class HourglassView: NSView {
     static let durations = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60]
     static let sizes: [(name: String, scale: CGFloat)] = [("Small", 0.5), ("Medium", 0.7), ("Large", 1.0)]
     static let pad: CGFloat = 12
-    private static let flipDuration: CFTimeInterval = 0.6
+    private static let flipDuration = 0.6
+    /// How long the crater and pile take to form again after a flip shakes the sand flat.
+    private static let settleDuration = 0.8
+    /// Long enough for the last grains to fall from the neck to the pile after the top runs dry.
+    private static let tailDuration = 0.45
 
     static func contentSize(sizeIndex: Int) -> NSSize {
         let scale = sizes[sizeIndex].scale
@@ -20,13 +24,25 @@ final class HourglassView: NSView {
     private var sizeIndex: Int
     private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
     private var grainSoundOn = UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true
-    private var flip: (start: CFTimeInterval, fromProgress: Double, restoreFrame: NSRect?)?
+    private var flip: (start: Date, from: SandClock)?
+    /// When the last flip landed; the sand's shapes re-form from here.
+    private var landedAt: Date?
+    /// When sand started through the neck; the stream's front falls from here.
+    private var releasedAt: Date?
     private var wasRunning = false
+    private var wasAnimating = false
     private var drag: (mouse: CGPoint, origin: CGPoint)?
     private var dragged = false
+    private var lastDragSample: (time: TimeInterval, x: CGFloat)?
+    private var dragVelocity = 0.0
+    private var smoothedVelocity = 0.0
+    private var sway = Sway()
+    /// Extra margin while the window is grown so a turning or swaying glass isn't clipped.
+    private var expansion: (dx: CGFloat, dy: CGFloat)?
+    private var lastTick = CACurrentMediaTime()
     private var timer: Timer?
-    /// Fixed rotation used when rendering a snapshot.
-    var previewAngle: CGFloat?
+    /// Fixed rotation used when rendering a snapshot: small angles sway, larger ones show a flip in progress.
+    var previewAngle: Double?
 
     init(minutes: Int, themeIndex: Int, sizeIndex: Int) {
         self.minutes = Self.durations.contains(minutes) ? minutes : 30
@@ -48,27 +64,61 @@ final class HourglassView: NSView {
     }
 
     func setPreview(progress: Double, running: Bool) {
-        clock = SandClock(duration: clock.duration, progress: progress, runningSince: running ? Date() : nil)
+        clock = SandClock(duration: clock.duration, progress: progress, runningSince: running ? Date() : nil, flowStartProgress: 0)
+        releasedAt = running ? .distantPast : nil
+    }
+
+    private static func smoothstep(_ t: Double) -> Double {
+        let x = min(1, max(0, t))
+        return x * x * (3 - 2 * x)
     }
 
     private func tick() {
         let now = Date()
+        let media = CACurrentMediaTime()
+        let dt = min(0.05, max(0.001, media - lastTick))
+        lastTick = media
+
         let running = clock.isRunning(at: now)
         if soundOn && wasRunning && !running && clock.progress(at: now) >= 1 {
             NSSound(named: "Glass")?.play()
         }
-        let patter = grainSoundOn && running && flip == nil
+        wasRunning = running
+
+        if let flip, now.timeIntervalSince(flip.start) >= Self.flipDuration {
+            self.flip = nil
+            landedAt = now
+            releasedAt = clock.runningSince == nil ? nil : now.addingTimeInterval(SandPhysics.releaseDelay)
+        }
+
+        // Sway: the drag's sideways speed (zero once the mouse stops moving) accelerates the spring.
+        let dragIsLive = dragged && lastDragSample.map { ProcessInfo.processInfo.systemUptime - $0.time < 0.06 } == true
+        let velocity = smoothedVelocity + ((dragIsLive ? dragVelocity : 0) - smoothedVelocity) * min(1, dt * 20)
+        let acceleration = abs(velocity - smoothedVelocity) < 0.01 ? 0 : (velocity - smoothedVelocity) / dt
+        smoothedVelocity = abs(velocity) < 0.01 ? 0 : velocity
+        sway.step(acceleration: acceleration, dt: dt)
+
+        let stream = streamExtent(at: now)
+        let patter = grainSoundOn && stream.map { $0.front > 150 && $0.tail < 150 } == true
         if let grains = Sounds.grains, patter != grains.isPlaying {
             if patter { grains.play() } else { grains.stop() }
         }
-        if running != wasRunning { needsDisplay = true }
-        wasRunning = running
-        if let flip, CACurrentMediaTime() - flip.start >= Self.flipDuration {
-            self.flip = nil
-            if let frame = flip.restoreFrame { window?.setFrame(frame, display: false) }
-            needsDisplay = true
-        }
-        if running || flip != nil { needsDisplay = true }
+
+        let moving = flip != nil || dragged || !sway.isSettled || smoothedVelocity != 0
+        if !moving { setExpanded(false) }
+        let settling = landedAt.map { now.timeIntervalSince($0) < Self.settleDuration } ?? false
+        let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
+        let animating = running || moving || settling || trailing
+        if animating || wasAnimating { needsDisplay = true }
+        wasAnimating = animating
+    }
+
+    /// The falling stream as (tail, front) distances below the neck, or nil when nothing is falling.
+    private func streamExtent(at now: Date) -> (tail: Double, front: Double)? {
+        guard flip == nil, clock.runningSince != nil, let releasedAt, now > releasedAt else { return nil }
+        let tail = clock.finishTime.map { SandPhysics.fallDistance(after: now.timeIntervalSince($0)) } ?? 0
+        guard tail < 400 else { return nil }
+        return (tail, SandPhysics.fallDistance(after: now.timeIntervalSince(releasedAt)))
     }
 
     // MARK: Drawing
@@ -76,29 +126,44 @@ final class HourglassView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let now = Date()
-        var progress = clock.progress(at: now)
-        var flowing = clock.isRunning(at: now)
-        var angle = previewAngle ?? 0
+        var frame = SandFrame(progress: clock.progress(at: now), flowStartProgress: clock.flowStartProgress)
+        var angle = 0.0
         if let flip {
-            let t = min(1, (CACurrentMediaTime() - flip.start) / Self.flipDuration)
-            let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
-            angle = .pi * CGFloat(eased)
-            progress = flip.fromProgress
-            flowing = false
+            let t = min(1, now.timeIntervalSince(flip.start) / Self.flipDuration)
+            angle = .pi * (t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
+            frame.progress = flip.from.progress(at: flip.start)
+            frame.flowStartProgress = flip.from.flowStartProgress
+            // The first jolt of the turn shakes the crater and pile flat, then the sand lets go and slides.
+            frame.shapeAmount = max(0, 1 - angle / SandPhysics.slideThreshold)
+            frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
+        } else if let previewAngle, previewAngle > SandPhysics.slideThreshold {
+            angle = previewAngle
+            frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
+        } else {
+            angle = previewAngle ?? sway.tilt
+            frame.surfaceTilt = previewAngle ?? sway.sandTilt
+            frame.streamTilt = angle
+            frame.shapeAmount = landedAt.map { Self.smoothstep(now.timeIntervalSince($0) / Self.settleDuration) } ?? 1
+            frame.stream = streamExtent(at: now)
         }
 
-        // Fit the (possibly rotated) timer inside the view.
-        let w = 200 + 2 * Self.pad, h = 400 + 2 * Self.pad
-        let c = abs(cos(angle)), s = abs(sin(angle))
-        let k = min(bounds.width / (w * c + h * s), bounds.height / (w * s + h * c))
+        let scale = Self.sizes[sizeIndex].scale
+        func placeTimer(rotated: Bool) {
+            ctx.translateBy(x: bounds.midX, y: bounds.midY)
+            if rotated { ctx.rotate(by: CGFloat(angle)) }
+            ctx.scaleBy(x: scale, y: scale)
+            ctx.translateBy(x: -100, y: -200)
+        }
         ctx.saveGState()
-        ctx.translateBy(x: bounds.midX, y: bounds.midY)
-        ctx.rotate(by: angle)
-        ctx.scaleBy(x: k, y: k)
-        ctx.translateBy(x: -100, y: -200)
-        let labels = clock.glassLabels(progress: progress)
-        renderer.draw(progress: progress, flowing: flowing, time: CACurrentMediaTime(), theme: Theme.all[themeIndex],
-                      topLabel: labels.remaining, bottomLabel: labels.elapsed, shadow: angle == 0)
+        placeTimer(rotated: false)
+        renderer.drawShadow(opacity: CGFloat(abs(cos(angle))))
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        placeTimer(rotated: true)
+        let labels = clock.glassLabels(progress: frame.progress)
+        renderer.draw(frame, time: CACurrentMediaTime(), theme: Theme.all[themeIndex],
+                      topLabel: labels.remaining, bottomLabel: labels.elapsed)
         ctx.restoreGState()
     }
 
@@ -109,18 +174,27 @@ final class HourglassView: NSView {
         guard let window, flip == nil else { return }
         drag = (NSEvent.mouseLocation, window.frame.origin)
         dragged = false
+        lastDragSample = nil
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let drag, let window else { return }
+        guard drag != nil, let window else { return }
         let mouse = NSEvent.mouseLocation
-        let dx = mouse.x - drag.mouse.x, dy = mouse.y - drag.mouse.y
-        if hypot(dx, dy) > 3 { dragged = true }
-        if dragged { window.setFrameOrigin(CGPoint(x: drag.origin.x + dx, y: drag.origin.y + dy)) }
+        if !dragged, let start = drag?.mouse, hypot(mouse.x - start.x, mouse.y - start.y) > 3 {
+            dragged = true
+            setExpanded(true)
+        }
+        guard dragged, let drag else { return }
+        window.setFrameOrigin(CGPoint(x: drag.origin.x + mouse.x - drag.mouse.x, y: drag.origin.y + mouse.y - drag.mouse.y))
+        if let last = lastDragSample, event.timestamp > last.time {
+            let speed = Double((mouse.x - last.x) / CGFloat(event.timestamp - last.time))
+            dragVelocity = dragVelocity * 0.4 + speed * 0.6
+        }
+        lastDragSample = (event.timestamp, mouse.x)
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { drag = nil }
+        defer { drag = nil; dragged = false }
         guard drag != nil else { return }
         if dragged {
             saveWindowOrigin()
@@ -136,19 +210,31 @@ final class HourglassView: NSView {
     private func flipTimer() {
         guard flip == nil else { return }
         let now = Date()
-        // Grow the window to a square for the turn so the glass doesn't get clipped.
-        var restore: NSRect?
-        if let window {
-            let frame = window.frame
-            let side = frame.height
-            restore = frame
-            window.setFrame(NSRect(x: frame.midX - side / 2, y: frame.minY, width: side, height: side), display: false)
-        }
-        flip = (CACurrentMediaTime(), clock.progress(at: now), restore)
+        setExpanded(true)
+        flip = (now, clock)
         if soundOn { Sounds.flip?.stop(); Sounds.flip?.play() }
         clock.flip(at: now)
+        releasedAt = nil
         wasRunning = false
         needsDisplay = true
+    }
+
+    /// Grows the window (keeping the timer in place) while it turns or sways, so nothing is clipped.
+    /// Margins are whole points, so growing and shrinking never drifts the window.
+    private func setExpanded(_ expanded: Bool) {
+        guard let window, expanded != (expansion != nil) else { return }
+        if expanded {
+            let content = Self.contentSize(sizeIndex: sizeIndex)
+            let diagonal = hypot(content.width, content.height)
+            let margin = (dx: ceil((diagonal - content.width) / 2), dy: ceil((diagonal - content.height) / 2))
+            expansion = margin
+            drag?.origin.x -= margin.dx
+            drag?.origin.y -= margin.dy
+            window.setFrame(window.frame.insetBy(dx: -margin.dx, dy: -margin.dy), display: true)
+        } else if let margin = expansion {
+            expansion = nil
+            window.setFrame(window.frame.insetBy(dx: margin.dx, dy: margin.dy), display: true)
+        }
     }
 
     // MARK: Menu
@@ -218,9 +304,19 @@ final class HourglassView: NSView {
     }
 
     @objc private func pauseClicked() { clock.pause(at: Date()); needsDisplay = true }
-    @objc private func resumeClicked() { clock.resume(at: Date()); needsDisplay = true }
+    @objc private func resumeClicked() {
+        clock.resume(at: Date())
+        releasedAt = Date()
+        needsDisplay = true
+    }
     @objc private func flipClicked() { flipTimer() }
-    @objc private func restartClicked() { clock.restart(at: Date()); needsDisplay = true }
+    @objc private func restartClicked() {
+        guard flip == nil else { return }
+        clock.restart(at: Date())
+        releasedAt = Date()
+        landedAt = nil
+        needsDisplay = true
+    }
 
     @objc private func soundToggled() {
         soundOn.toggle()
@@ -246,7 +342,8 @@ final class HourglassView: NSView {
     }
 
     @objc private func sizePicked(_ sender: NSMenuItem) {
-        guard let window else { return }
+        guard let window, flip == nil else { return }
+        setExpanded(false)
         sizeIndex = sender.tag
         UserDefaults.standard.set(sizeIndex, forKey: "size")
         let size = Self.contentSize(sizeIndex: sizeIndex)
@@ -256,7 +353,8 @@ final class HourglassView: NSView {
     }
 
     private func saveWindowOrigin() {
-        guard let origin = window?.frame.origin else { return }
-        UserDefaults.standard.set([origin.x, origin.y], forKey: "origin")
+        guard let window else { return }
+        let frame = expansion.map { window.frame.insetBy(dx: $0.dx, dy: $0.dy) } ?? window.frame
+        UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: "origin")
     }
 }

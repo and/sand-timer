@@ -18,17 +18,37 @@ struct Theme {
     ]
 }
 
+/// What the sand is doing in one frame, in the glass's own frame of reference.
+struct SandFrame {
+    var progress: Double
+    var flowStartProgress: Double
+    /// 0 = sand shaken flat (just after a flip), 1 = crater and pile fully formed.
+    var shapeAmount: Double = 1
+    /// Lean of the resting sand surfaces while the glass sways (radians).
+    var surfaceTilt: Double = 0
+    /// Lean of the falling stream; it always hangs straight down on screen.
+    var streamTilt: Double = 0
+    /// The falling stream as distances below the neck: its tail (where it has let go of the neck) and its front.
+    var stream: (tail: Double, front: Double)?
+    /// Sand outlines while the glass is turning over; replaces the resting shapes.
+    var turning: (upper: [SandPhysics.Point], lower: [SandPhysics.Point])?
+}
+
 /// Draws the timer in a 200 x 400 unit space (y grows downward, neck at y = 200).
 /// The caller sets up the transform; everything here is resolution independent.
 final class HourglassRenderer {
     private typealias G = HourglassGeometry
-    private let geo = HourglassGeometry()
-    private let cx: CGFloat = 100
-    private let neckY: CGFloat = 200
+    private typealias P = SandPhysics
+    private let geo = SandPhysics.geometry
+    private let cx = CGFloat(SandPhysics.centerX)
+    private let neckY = CGFloat(SandPhysics.neckY)
     private var bottomY: CGFloat { neckY + CGFloat(G.halfLength) }
     private lazy var outerPath = glassPath(inner: false)
     private lazy var innerPath = glassPath(inner: true)
     private let speckles: [(rect: CGRect, light: Bool)]
+    /// The glass and caps never change, so they're rendered once per color and pixel scale and reused every frame.
+    private var layerCache: [String: (back: CGImage, front: CGImage)] = [:]
+    private let layerBounds = CGRect(x: -4, y: -4, width: 208, height: 408)
 
     init() {
         var seed: UInt64 = 7
@@ -39,25 +59,99 @@ final class HourglassRenderer {
             z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
             return CGFloat((z ^ (z >> 31)) >> 11) / CGFloat(1 << 53)
         }
+        // Seen through a round glass, grains crowd toward the walls: spread them with a cylindrical-lens mapping.
+        let lens: CGFloat = 54
+        let center = cx
         speckles = (0..<1100).map { _ in
-            (CGRect(x: 44 + random() * 112, y: 44 + random() * 312, width: 1.3, height: 1.3), random() < 0.5)
+            let u = max(-1, min(1, (random() * 112 - 56) / lens))
+            let x = center + lens * sin(.pi / 2 * u)
+            return (CGRect(x: x, y: 44 + random() * 312, width: 1.3, height: 1.3), random() < 0.5)
         }
     }
 
-    func draw(progress: Double, flowing: Bool, time: CFTimeInterval, theme: Theme, topLabel: String, bottomLabel: String, shadow: Bool) {
-        if shadow { drawShadow() }
-        drawGlassBody()
+    /// Shadow on the desk, drawn upright even when the glass is tilted. Fades as the timer is lifted to flip.
+    func drawShadow(opacity: CGFloat) {
+        guard opacity > 0.01 else { return }
+        NSGradient(starting: NSColor(white: 0, alpha: 0.26 * opacity), ending: NSColor(white: 0, alpha: 0))?
+            .draw(in: NSBezierPath(ovalIn: CGRect(x: -4, y: 388, width: 208, height: 24)), relativeCenterPosition: .zero)
+        NSGradient(starting: NSColor(white: 0, alpha: 0.5 * opacity), ending: NSColor(white: 0, alpha: 0))?
+            .draw(in: NSBezierPath(ovalIn: CGRect(x: 14, y: 395, width: 172, height: 9)), relativeCenterPosition: .zero)
+    }
+
+    func draw(_ frame: SandFrame, time: CFTimeInterval, theme: Theme, topLabel: String, bottomLabel: String) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let device = ctx.userSpaceToDeviceSpaceTransform
+        let layers = cachedLayers(theme: theme, pixelScale: hypot(device.a, device.b))
+        if let layers { drawLayer(layers.back) } else { drawGlassBody() }
 
         NSGraphicsContext.saveGraphicsState()
         innerPath.addClip()
-        let crater = drawTopSand(progress: progress, flowing: flowing, theme: theme)
-        let pile = drawBottomSand(progress: progress, flowing: flowing, theme: theme)
-        if flowing { drawFlow(crater: crater, pile: pile, theme: theme, time: time) }
-        drawHighlights()
+        if let turning = frame.turning {
+            for outline in [turning.upper, turning.lower] where outline.count > 2 {
+                let path = NSBezierPath()
+                path.move(to: CGPoint(x: outline[0].x, y: outline[0].y))
+                outline.dropFirst().forEach { path.line(to: CGPoint(x: $0.x, y: $0.y)) }
+                path.close()
+                fillSand(path, theme: theme)
+            }
+        } else {
+            let top = topSurface(frame)
+            let bottom = bottomSurface(frame)
+            if let top { fillSand(region(under: top, closingAt: neckY + 4, lowest: neckY + 4), theme: theme) }
+            if let bottom { fillSand(region(under: bottom, closingAt: bottomY + 8, lowest: bottomY + 1), theme: theme) }
+            drawFlow(frame, top: top, bottom: bottom, theme: theme, time: time)
+        }
         NSGraphicsContext.restoreGraphicsState()
 
+        if let layers { drawLayer(layers.front) } else { drawGlassFront(theme: theme) }
         drawPrint(topLabel, centerY: 86, theme: theme)
         drawPrint(bottomLabel, centerY: 2 * neckY - 86, theme: theme)
+    }
+
+    // MARK: Cached layers
+
+    private func cachedLayers(theme: Theme, pixelScale: CGFloat) -> (back: CGImage, front: CGImage)? {
+        let scale = (pixelScale * 4).rounded(.up) / 4
+        let key = "\(theme.name)@\(scale)"
+        if let layers = layerCache[key] { return layers }
+        guard let back = renderLayer(scale: scale, { drawGlassBody() }),
+              let front = renderLayer(scale: scale, { drawGlassFront(theme: theme) }) else { return nil }
+        if layerCache.count > 8 { layerCache.removeAll() }
+        layerCache[key] = (back, front)
+        return (back, front)
+    }
+
+    private func renderLayer(scale: CGFloat, _ drawing: () -> Void) -> CGImage? {
+        let width = Int((layerBounds.width * scale).rounded(.up)), height = Int((layerBounds.height * scale).rounded(.up))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: scale, y: -scale)
+        ctx.translateBy(x: -layerBounds.minX, y: -layerBounds.minY)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        drawing()
+        NSGraphicsContext.restoreGraphicsState()
+        return ctx.makeImage()
+    }
+
+    private func drawLayer(_ image: CGImage) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: layerBounds.minX, y: layerBounds.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(origin: .zero, size: layerBounds.size))
+        ctx.restoreGState()
+    }
+
+    /// Everything in front of the sand: reflections inside the glass, its outline, and the caps.
+    private func drawGlassFront(theme: Theme) {
+        NSGraphicsContext.saveGraphicsState()
+        innerPath.addClip()
+        drawHighlights()
+        NSGraphicsContext.restoreGraphicsState()
         strokeGlass()
         drawCap(top: true, theme: theme)
         drawCap(top: false, theme: theme)
@@ -67,8 +161,8 @@ final class HourglassRenderer {
 
     private func glassPath(inner: Bool) -> NSBezierPath {
         var right: [CGPoint] = []
-        for i in 0...360 {
-            let y = 20 + CGFloat(i)
+        for i in 0...180 {
+            let y = 20 + CGFloat(i) * 2
             let d = min(Double(abs(y - neckY)), G.halfLength)
             let r = inner ? G.innerRadius(d) : G.outerRadius(d)
             right.append(CGPoint(x: cx + CGFloat(r), y: y))
@@ -81,12 +175,6 @@ final class HourglassRenderer {
         return path
     }
 
-    private func drawShadow() {
-        let oval = NSBezierPath(ovalIn: CGRect(x: 0, y: 390, width: 200, height: 20))
-        NSGradient(starting: NSColor(white: 0, alpha: 0.32), ending: NSColor(white: 0, alpha: 0))?
-            .draw(in: oval, relativeCenterPosition: .zero)
-    }
-
     private func drawGlassBody() {
         NSGradient(colorsAndLocations:
             (NSColor(white: 0.72, alpha: 0.42), 0),
@@ -97,6 +185,22 @@ final class HourglassRenderer {
     }
 
     private func strokeGlass() {
+        // The thickness of the glass wall, slightly darker where you look through more glass.
+        let wall = NSBezierPath()
+        wall.append(outerPath)
+        wall.append(innerPath)
+        wall.windingRule = .evenOdd
+        NSColor(white: 0.45, alpha: 0.16).setFill()
+        wall.fill()
+
+        // A bright rim just inside the silhouette, where the curved glass catches the light.
+        NSGraphicsContext.saveGraphicsState()
+        outerPath.addClip()
+        NSColor(white: 1, alpha: 0.35).setStroke()
+        outerPath.lineWidth = 3
+        outerPath.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
         NSColor(white: 0.2, alpha: 0.45).setStroke()
         outerPath.lineWidth = 1.2
         outerPath.stroke()
@@ -132,11 +236,67 @@ final class HourglassRenderer {
 
     // MARK: Sand
 
+    /// A sand surface: its height across the glass, and the span grains travel along it.
+    private struct Surface {
+        /// Surface y at a horizontal offset from the center line.
+        let y: (CGFloat) -> CGFloat
+        /// Offsets from the center where moving grains start and stop (crater: rim to funnel; pile: peak to foot).
+        let slideFrom: CGFloat
+        let slideTo: CGFloat
+    }
+
+    /// Upper bulb: a funnel crater, drawn into sand that was flat when it started flowing.
+    private func topSurface(_ frame: SandFrame) -> Surface? {
+        let flat = geo.topSandHeight(progress: frame.progress)
+        guard flat > 0.3 else { return nil }
+        let startLevel = max(flat, geo.topSandHeight(progress: frame.flowStartProgress))
+        let tip = P.craterTip(volume: geo.sandVolume * (1 - frame.progress), flatLevel: startLevel)
+        let slope = P.reposeSlope, amount = frame.shapeAmount
+        let lean = CGFloat(tan(frame.surfaceTilt)), neckY = self.neckY
+        let rim = max(0, min(G.bulbRadius, (startLevel - tip) / slope))
+        return Surface(
+            y: { offset in
+                let crater = max(0, min(startLevel, tip + slope * Double(abs(offset))))
+                return neckY - CGFloat(flat + (crater - flat) * amount) - offset * lean
+            },
+            slideFrom: CGFloat(rim), slideTo: CGFloat(max(0, -tip / slope)))
+    }
+
+    /// Lower bulb: a cone at the angle of repose, spreading to the walls as it grows.
+    private func bottomSurface(_ frame: SandFrame) -> Surface? {
+        let volume = geo.sandVolume * frame.progress
+        guard volume > 1 else { return nil }
+        let flat = G.halfLength - geo.bottomSurfaceDistance(progress: frame.progress)
+        let peak = P.pilePeak(volume: volume)
+        let slope = P.reposeSlope, amount = frame.shapeAmount
+        let lean = CGFloat(tan(frame.surfaceTilt)), bottomY = self.bottomY
+        return Surface(
+            y: { offset in
+                let pile = max(0, peak - slope * Double(abs(offset)))
+                return bottomY - CGFloat(flat + (pile - flat) * amount) - offset * lean
+            },
+            slideFrom: 0, slideTo: CGFloat(min(G.bulbRadius, peak / slope)))
+    }
+
+    /// The area below a surface, closed off at `closingAt`; the glass clip trims it to the bulb.
+    private func region(under surface: Surface, closingAt closingY: CGFloat, lowest: CGFloat) -> NSBezierPath {
+        let half: CGFloat = 60, samples = 120
+        let path = NSBezierPath()
+        path.move(to: CGPoint(x: cx - half, y: closingY))
+        for i in 0...samples {
+            let offset = -half + 2 * half * CGFloat(i) / CGFloat(samples)
+            path.line(to: CGPoint(x: cx + offset, y: min(lowest, surface.y(offset))))
+        }
+        path.line(to: CGPoint(x: cx + half, y: closingY))
+        path.close()
+        return path
+    }
+
     private func fillSand(_ path: NSBezierPath, theme: Theme) {
         let base = theme.sand
-        let edge = base.blended(withFraction: 0.35, of: .black) ?? base
+        let edge = base.blended(withFraction: 0.45, of: .black) ?? base
         let lit = base.blended(withFraction: 0.14, of: .white) ?? base
-        NSGradient(colorsAndLocations: (edge, 0), (base, 0.25), (lit, 0.45), (base, 0.75), (edge, 1))?
+        NSGradient(colorsAndLocations: (edge, 0), (base, 0.22), (lit, 0.45), (base, 0.78), (edge, 1))?
             .draw(in: path, angle: 0)
 
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -151,129 +311,88 @@ final class HourglassRenderer {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private struct SandSurface {
-        let y: CGFloat        // surface height at the edges
-        let lift: CGFloat     // how far the center sits below (crater, positive) or above (pile, negative) the edges
-        let radius: CGFloat
-
-        /// Surface height at a horizontal offset from the center.
-        func height(at offset: CGFloat, falloff: (CGFloat) -> CGFloat) -> CGFloat {
-            y + lift * falloff(min(1, abs(offset) / radius))
-        }
-    }
-
-    private static func craterFalloff(_ u: CGFloat) -> CGFloat { 0.5 + 0.5 * cos(.pi * u) }
-    private static func pileFalloff(_ u: CGFloat) -> CGFloat {
-        let t = 1 - u
-        return 0.7 * t + 0.3 * t * t * (3 - 2 * t)
-    }
-
-    private func drawTopSand(progress: Double, flowing: Bool, theme: Theme) -> SandSurface? {
-        let h = CGFloat(geo.topSandHeight(progress: progress))
-        guard h > 0.3 else { return nil }
-        let r = CGFloat(G.innerRadius(Double(h))) + 1
-        let crater = SandSurface(y: neckY - h, lift: flowing ? min(4, h * 0.3) : min(1.5, h * 0.2), radius: r * 0.8)
-        let left = cx - r - 2, right = cx + r + 2
-
-        let path = NSBezierPath()
-        path.move(to: CGPoint(x: left, y: neckY + 4))
-        for i in 0...48 {
-            let x = left + (right - left) * CGFloat(i) / 48
-            path.line(to: CGPoint(x: x, y: crater.height(at: x - cx, falloff: Self.craterFalloff)))
-        }
-        path.line(to: CGPoint(x: right, y: neckY + 4))
-        path.close()
-        fillSand(path, theme: theme)
-        return crater
-    }
-
-    private func drawBottomSand(progress: Double, flowing: Bool, theme: Theme) -> SandSurface? {
-        let volume = geo.sandVolume * progress
-        guard volume > 1 else { return nil }
-        let d = CGFloat(geo.bottomSurfaceDistance(progress: progress))
-        let layer = bottomY - (neckY + d)
-        let r = CGFloat(G.innerRadius(Double(d))) + 1
-        let grow = CGFloat(min(1, volume / 40_000))
-        let mound = min(flowing ? 20 : 15, 4 + layer * 1.6) * grow
-        let pile = SandSurface(y: min(bottomY, neckY + d + mound * 0.4), lift: -mound, radius: r)
-        let left = cx - r - 2, right = cx + r + 2
-
-        let path = NSBezierPath()
-        path.move(to: CGPoint(x: left, y: bottomY + 8))
-        for i in 0...48 {
-            let x = left + (right - left) * CGFloat(i) / 48
-            path.line(to: CGPoint(x: x, y: min(bottomY + 1, pile.height(at: x - cx, falloff: Self.pileFalloff))))
-        }
-        path.line(to: CGPoint(x: right, y: bottomY + 8))
-        path.close()
-        fillSand(path, theme: theme)
-        return pile
-    }
-
     /// Stable pseudo-random value in 0..<1 for grain `i` and channel `k`.
     private static func hash(_ i: Int, _ k: Int) -> Double {
         let v = sin(Double(i) * 12.9898 + Double(k) * 78.233) * 43758.5453
         return v - v.rounded(.down)
     }
 
-    /// Everything that moves while sand is flowing: grains sliding into the crater,
-    /// a glittering stream through the neck, and grains tumbling down the pile.
-    /// Positions are pure functions of time, so there is no particle state to keep.
-    private func drawFlow(crater: SandSurface?, pile: SandSurface?, theme: Theme, time: CFTimeInterval) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let light = (theme.sand.blended(withFraction: 0.45, of: .white) ?? theme.sand).cgColor
-        let dark = (theme.sand.blended(withFraction: 0.3, of: .black) ?? theme.sand).cgColor
-        let peakY = pile.map { $0.y + $0.lift } ?? bottomY
-        var lightGrains: [CGRect] = [], darkGrains: [CGRect] = []
+    /// Everything that moves while sand is falling: grains sliding into the crater, the stream through the neck,
+    /// and grains tumbling down the pile. Positions are pure functions of time, so there is no particle state.
+    private func drawFlow(_ frame: SandFrame, top: Surface?, bottom: Surface?, theme: Theme, time: CFTimeInterval) {
+        guard let stream = frame.stream, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let lightColor = (theme.sand.blended(withFraction: 0.45, of: .white) ?? theme.sand).cgColor
+        let darkColor = (theme.sand.blended(withFraction: 0.3, of: .black) ?? theme.sand).cgColor
+        var light: [CGRect] = [], dark: [CGRect] = []
         func grain(_ i: Int, _ x: CGFloat, _ y: CGFloat, _ size: CGFloat) {
             let rect = CGRect(x: x - size / 2, y: y - size / 2, width: size, height: size)
-            if i % 3 == 0 { lightGrains.append(rect) } else { darkGrains.append(rect) }
+            if i % 3 == 0 { light.append(rect) } else { dark.append(rect) }
+        }
+        func fillGrains() {
+            ctx.setFillColor(darkColor); ctx.fill(dark)
+            ctx.setFillColor(lightColor); ctx.fill(light)
+            light.removeAll(); dark.removeAll()
         }
 
+        // The stream hangs straight down on screen, so in the glass's frame it leans against any sway.
+        let lean = CGFloat(tan(frame.streamTilt))
+        func landingY() -> CGFloat {
+            guard let bottom else { return bottomY }
+            let first = bottom.y(0)
+            return bottom.y((first - neckY) * lean)
+        }
+        let landing = landingY()
+        let landingOffset = (landing - neckY) * lean
+        let streamTop = neckY - 3 + CGFloat(stream.tail)
+        let streamEnd = min(landing, neckY + CGFloat(stream.front))
+        let feeding = stream.tail < 1 && top != nil
+        let hitsPile = streamEnd >= landing - 0.5 && streamEnd - streamTop > 1
+
         // Grains creeping down the crater walls toward the neck.
-        if let crater {
+        if feeding, let top, top.slideFrom - top.slideTo > 2 {
             for i in 0..<16 {
                 let period = 1.4 + Self.hash(i, 1) * 1.6
                 let u = CGFloat(((time + Self.hash(i, 2) * period) / period).truncatingRemainder(dividingBy: 1))
                 let side: CGFloat = Self.hash(i, 3) < 0.5 ? -1 : 1
-                let offset = side * crater.radius * CGFloat(0.25 + 0.75 * Self.hash(i, 4)) * (1 - u * u)
-                grain(i, cx + offset, crater.height(at: offset, falloff: Self.craterFalloff) - 0.6, 1.6)
+                let start = top.slideTo + (top.slideFrom - top.slideTo) * CGFloat(0.3 + 0.7 * Self.hash(i, 4))
+                let offset = side * (top.slideTo + (start - top.slideTo) * (1 - u * u))
+                grain(i, cx + offset, top.y(offset) - 0.6, 1.6)
             }
+            fillGrains()
         }
 
-        // The stream: a slightly wavering core with grains racing down it.
-        let top = neckY - 3
-        let length = peakY - top
-        if crater != nil, length > 2 {
+        // The stream: a wavering core with grains racing down it. It thins once the top has run dry.
+        if streamEnd - streamTop > 1 {
+            ctx.saveGState()
+            ctx.concatenate(CGAffineTransform(a: 1, b: 0, c: lean, d: 1, tx: -lean * neckY, ty: 0))
             let wobble = CGFloat(sin(time * 23) * 0.25)
+            let width: CGFloat = stream.tail > 0 ? 1.3 : 2.2
             ctx.setFillColor(theme.sand.withAlphaComponent(0.9).cgColor)
-            ctx.fill(CGRect(x: cx - 1.1 + wobble, y: top, width: 2.2, height: length + 1))
-            let count = Int(length / 5)
-            for i in 0..<count {
+            ctx.fill(CGRect(x: cx - width / 2 + wobble, y: streamTop, width: width, height: streamEnd - streamTop))
+            let length = Double(landing - (neckY - 3))
+            for i in 0..<max(1, Int(length / 5)) {
                 let speed = 170 + Self.hash(i, 5) * 60
-                let y = (time * speed + Self.hash(i, 6) * Double(length)).truncatingRemainder(dividingBy: Double(length))
-                let x = cx + CGFloat(sin(time * 11 + Double(i)) * 0.8) + wobble
-                grain(i, x, top + CGFloat(y), 1.9)
+                let y = neckY - 3 + CGFloat((time * speed + Self.hash(i, 6) * length).truncatingRemainder(dividingBy: length))
+                guard y >= streamTop && y <= streamEnd else { continue }
+                grain(i, cx + CGFloat(sin(time * 11 + Double(i)) * 0.8) + wobble, y, 1.9)
             }
+            fillGrains()
+            ctx.restoreGState()
         }
 
         // Grains landing on the pile and rolling down its slopes, speeding up as they go.
-        if let pile, crater != nil {
+        if hitsPile, let bottom {
+            let reach = max(0, bottom.slideTo - abs(landingOffset))
             for i in 0..<18 {
                 let period = 0.9 + Self.hash(i, 7) * 1.1
                 let u = CGFloat(((time + Self.hash(i, 8) * period) / period).truncatingRemainder(dividingBy: 1))
                 let side: CGFloat = Self.hash(i, 9) < 0.5 ? -1 : 1
-                let reach = pile.radius * CGFloat(0.35 + 0.6 * Self.hash(i, 10))
-                let offset = side * reach * u * u
+                let offset = landingOffset + side * reach * CGFloat(0.35 + 0.6 * Self.hash(i, 10)) * u * u
                 let bounce = sin(u * .pi * 3) * (1 - u) * 1.8
-                grain(i, cx + offset, pile.height(at: offset, falloff: Self.pileFalloff) - 0.8 - abs(bounce), 1.7)
+                grain(i, cx + offset, bottom.y(offset) - 0.8 - abs(bounce), 1.7)
             }
+            fillGrains()
         }
-
-        ctx.setFillColor(dark)
-        ctx.fill(darkGrains)
-        ctx.setFillColor(light)
-        ctx.fill(lightGrains)
     }
 
     // MARK: Print and caps
@@ -301,6 +420,7 @@ final class HourglassRenderer {
         let lit = base.blended(withFraction: 0.22, of: .white) ?? base
         let band = CGRect(x: 19, y: top ? 18 : 354, width: 162, height: 28)
         let disc = CGRect(x: 7, y: top ? 0 : 377, width: 186, height: 23)
+        let glint = NSGradient(colors: [NSColor(white: 1, alpha: 0), NSColor(white: 1, alpha: 1), NSColor(white: 1, alpha: 0)])
 
         let bandPath = NSBezierPath(roundedRect: band, xRadius: 3, yRadius: 3)
         NSGradient(colorsAndLocations: (dark, 0), (lit, 0.22), (base, 0.6), (dark, 1))?.draw(in: bandPath, angle: 0)
@@ -312,6 +432,18 @@ final class HourglassRenderer {
         NSGradient(colorsAndLocations: (dark, 0), (lit, 0.2), (base, 0.55), (dark, 1))?.draw(in: discPath, angle: 0)
         NSGradient(starting: NSColor(white: 1, alpha: 0.16), ending: NSColor(white: 1, alpha: 0))?
             .draw(in: NSBezierPath(roundedRect: disc.insetBy(dx: 3, dy: 1), xRadius: 5, yRadius: 5), angle: 90)
+
+        // Glossy plastic: a horizontal reflection streak and a thin bevel catching light along the top edge.
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.cgContext.setAlpha(0.3)
+        glint?.draw(in: NSBezierPath(roundedRect: CGRect(x: disc.minX + 10, y: disc.minY + disc.height * 0.3,
+                                                          width: disc.width - 20, height: 3.5), xRadius: 1.75, yRadius: 1.75), angle: 0)
+        NSGraphicsContext.current?.cgContext.setAlpha(0.14)
+        glint?.draw(in: NSBezierPath(rect: CGRect(x: band.minX + 8, y: band.minY + band.height * 0.35, width: band.width - 16, height: 3)), angle: 0)
+        NSGraphicsContext.current?.cgContext.setAlpha(0.3)
+        glint?.draw(in: NSBezierPath(rect: CGRect(x: disc.minX + 5, y: disc.minY + 0.6, width: disc.width - 10, height: 0.9)), angle: 0)
+        NSGraphicsContext.restoreGraphicsState()
+
         NSColor(white: 0, alpha: 0.35).setFill()
         NSBezierPath(rect: CGRect(x: band.minX, y: top ? disc.maxY : disc.minY - 1, width: band.width, height: 1)).fill()
     }

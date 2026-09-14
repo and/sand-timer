@@ -48,7 +48,11 @@ func renderSnapshot(_ args: [String]) throws {
     let view = HourglassView(minutes: Int(value("--minutes") ?? "") ?? 30,
                              themeIndex: Int(value("--theme") ?? "") ?? 0, sizeIndex: 2)
     view.setPreview(progress: Double(value("--progress") ?? "") ?? 0.35, running: !args.contains("--stopped"))
-    view.previewAngle = value("--angle").flatMap(Double.init).map { CGFloat($0) }
+    view.previewAngle = value("--angle").flatMap(Double.init)
+    if view.previewAngle != nil {  // room for a tilted glass
+        let side = hypot(view.frame.width, view.frame.height).rounded(.up)
+        view.frame.size = NSSize(width: side, height: side)
+    }
 
     let size = view.bounds.size
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),

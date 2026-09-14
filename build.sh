@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" ]]; then
-  swiftc -swift-version 5 Sources/Model.swift Tests/main.swift -o build/tests
+  swiftc -swift-version 5 Sources/Model.swift Sources/SandPhysics.swift Tests/main.swift -o build/tests
   ./build/tests
   exit
 fi
