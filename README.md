@@ -1,74 +1,53 @@
 # Sand Timer
 
-A realistic sand timer that sits on your Mac's desktop, above your other windows.
+A sand timer that sits on your Mac's desktop, above your other windows. Click it to
+start, and watch the sand run.
 
 <p align="center">
-  <img src="docs/hourglass.png" width="300" alt="The Sand Timer hourglass, mid-pour, with 14:30 remaining on the display in its base">
+  <img src="docs/hourglass.png" width="290" alt="The Sand Timer hourglass, mid-pour, with 14:30 remaining on the display in its base">
 </p>
 
-## Download
+## Get it
 
-Grab the latest `.dmg` from [Releases](https://github.com/and/sand-timer/releases),
-open it, and drag **Sand Timer** into **Applications**. macOS 13 Ventura or later,
-Apple Silicon and Intel.
+1. Download **SandTimer-1.0.0.dmg** from the [latest release](https://github.com/and/sand-timer/releases/latest).
+2. Open it and drag **Sand Timer** into **Applications**.
+3. Open it from Applications. No security warning, no setup, no account.
 
-The app is signed and notarized, so it opens without a security warning — the
-notarization ticket is stapled into both the app and the disk image, which means it
-works on a machine that is offline too.
+Works on macOS 13 Ventura or later, on both Apple Silicon and Intel Macs.
+
+The timer has no window of its own and no icon in the Dock — it simply appears on your
+desktop, sitting above whatever you are working in.
 
 ## Using it
 
-- **Click** to start. Click again to pause — it tips onto its side — and again to resume.
-- **Drag** it anywhere; let go and it drops to the bottom of the screen.
-- **Right-click** for durations (1–60 minutes, including a 25-minute 🍅 Pomodoro),
-  sand colours, base style, size, sounds, Start at Login and Hide to Menu Bar.
+- **Click** it to start. Click again to pause — it tips onto its side — and once more
+  to carry on.
+- **Drag** it wherever you like. Let go and it drops to the bottom of the screen.
+- **Right-click** for everything else: how long to run (1 to 60 minutes, including a
+  25-minute 🍅 Pomodoro), the colour of the sand, the style of the base, how big it is,
+  whether it makes sounds, whether it starts when you log in, and whether it hides in
+  the menu bar.
 
-## What's inside
+When the time is up it chimes. If you would rather keep it out of the way, hide it to
+the menu bar and the time left shows up there instead, where you can pause and resume it.
 
-Sand that behaves like sand: a crater that deepens on top, a pile that builds at the
-bottom, a stream that loosens as it falls, and a neck sized to the duration. Flip,
-drop, shake or knock it over and the sand responds. The remaining time shows on a
-display in the base, which switches over when you flip it.
+## What it does
 
-The sounds were made to match — pouring onto glass, then onto sand, shaking, landing,
-and a chime when time is up.
+The sand behaves like sand. A crater deepens in the top as it drains, a pile builds up
+underneath, and the stream loosens as it falls. A short timer gets a narrow neck and a
+long one gets a wider neck, so the sand always finishes when it should.
+
+Pick it up and drop it, shake it, or knock it over, and the sand reacts the way you
+would expect. Flip it and the display in the base turns over with it.
+
+The sounds were made to match what you are seeing: sand landing on glass at first, then
+on sand as the pile grows, a rattle while you shake it, and a chime at the end.
 
 <p align="center">
-  <img src="docs/theme-amber.png" width="200" alt="The timer in a green sand theme with a matching base">
-  <img src="docs/theme-rose-dark.png" width="200" alt="The timer in a rose sand theme on a dark desktop">
+  <img src="docs/theme-amber.png" width="190" alt="The timer with green sand and a matching green base">
+  <img src="docs/theme-rose-dark.png" width="190" alt="The timer with rose sand on a dark desktop">
 </p>
 
-## Building
+---
 
-```sh
-./build.sh              # build SandTimer.app
-./build.sh release      # universal binary, signed, notarized, packaged as a .dmg
-./build.sh test         # unit and integration tests
-./build.sh test-unit    # unit tests only (opens no windows)
-```
-
-`release` notarizes automatically using credentials saved in your Keychain:
-
-```sh
-xcrun notarytool store-credentials sandtimer-notary --apple-id <you> --team-id <TEAMID>
-```
-
-The app draws its own images. `SandTimer --snapshot out.png` renders the view to a
-PNG — it takes `--minutes`, `--progress`, `--theme`, `--base`, `--angle`, `--shake`
-and `--dark` — and `--iconset` renders the app icon at every size macOS asks for,
-which is where `AppIcon.icns` comes from. The images in this README were made that way.
-
-Point `NOTARY_PROFILE` at a different profile to use another one, or set it empty to
-skip notarizing. It verifies what it produced rather than assuming: `stapler validate`
-on both artifacts, then `spctl --assess`, which is the check another Mac performs.
-
-## Layout
-
-| | |
-|---|---|
-| `Sources/SandPhysics.swift` | how the sand piles, craters, falls and slides |
-| `Sources/HourglassRenderer.swift` | drawing the glass, sand and base |
-| `Sources/HourglassView.swift` | the view, its gestures and animation |
-| `Sources/Sounds.swift` | synthesised pouring, shaking and chime |
-| `Sources/Model.swift` | duration, progress and settings |
-| `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
+Building from source: see [BUILDING.md](BUILDING.md).
