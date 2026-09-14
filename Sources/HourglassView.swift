@@ -14,8 +14,6 @@ final class HourglassView: NSView {
     /// Toppling over takes a moment of gathering speed; being stood back up is a gentler lift.
     private static let fallOverDuration = 0.5
     private static let standUpDuration = 0.7
-    /// How long flowing sand takes to build the crater and pile again after they've been shaken flat.
-    private static let reformDuration = 1.2
     /// Long enough for the last grains to fall from the neck to the pile after the top runs dry.
     private static let tailDuration = 0.45
 
@@ -40,8 +38,10 @@ final class HourglassView: NSView {
     /// When the display at the new base switches on after a flip lands.
     private var displayOnAt: Date?
     private static let displayFade = 0.3
-    /// How formed the crater and pile are: 1 = fully, 0 = shaken flat by a flip or a hard jolt.
-    private var shape = 1.0
+    /// Progress when each bulb's sand last settled flat: after a flip lands, when it's stood back up, and gradually while
+    /// it's shaken. The top's crater and the bottom's new cone build from there, so a flattened heap stays flat.
+    private var topSettledProgress = 0.0
+    private var bottomSettledProgress = 0.0
     private var agitation = Agitation()
     /// When sand started through the neck; the stream's front falls from here.
     private var releasedAt: Date?
@@ -87,8 +87,10 @@ final class HourglassView: NSView {
     }
 
     func setPreview(progress: Double, running: Bool) {
-        clock = SandClock(duration: clock.duration, progress: progress, runningSince: running ? Date() : nil, flowStartProgress: 0)
+        clock = SandClock(duration: clock.duration, progress: progress, runningSince: running ? Date() : nil)
         releasedAt = running ? .distantPast : nil
+        topSettledProgress = 0
+        bottomSettledProgress = 0
     }
 
     private func tick() {
@@ -109,7 +111,7 @@ final class HourglassView: NSView {
             if now.timeIntervalSince(flip.start) >= Self.flipDuration {
                 self.flip = nil
                 displayOnAt = now
-                shape = 0
+                settleSand(at: now)  // the turn shook both heaps flat
                 releasedAt = clock.runningSince == nil ? nil : now.addingTimeInterval(SandPhysics.releaseDelay)
                 letGo()  // settle back onto the ground if the turn lifted it
             }
@@ -123,6 +125,7 @@ final class HourglassView: NSView {
             if now.timeIntervalSince(tip.start) >= tipDuration(tip) {
                 self.tip = nil
                 lyingAngle = tip.to
+                settleSand(at: now)
                 if tip.to != 0 {
                     // Landing on its side jolts the sand: the far end hits at the angular speed of the fall.
                     let spin = 2 * abs(tip.to - tip.from) / Self.fallOverDuration
@@ -161,9 +164,13 @@ final class HourglassView: NSView {
         }
 
         let stream = streamExtent(at: now)
-        // Jolts shake the heaps flatter; only sand that's flowing can build the crater and pile back up.
-        shape = max(0, shape - agitation.level * dt * 4)
-        if stream != nil, agitation.level < 0.05 { shape = min(1, shape + dt / Self.reformDuration) }
+        // Jolts shake the heaps flatter, and they stay that way: new sand builds on the leveled sand.
+        let flatten = min(1, agitation.level * dt * 4)
+        if flatten > 0 {
+            let progress = clock.progress(at: now)
+            topSettledProgress += (progress - topSettledProgress) * flatten
+            bottomSettledProgress += (progress - bottomSettledProgress) * flatten
+        }
         let visible = window?.isVisible == true
         // Shaken sand rattles, louder the more it's stirred up; it fades with the sand as each jolt settles.
         if let rattle = Sounds.shake {
@@ -181,7 +188,7 @@ final class HourglassView: NSView {
         let moving = flip != nil || tip != nil || !streamLean.isSettled || !agitation.isSettled
         setExpanded(flip != nil || tip != nil || lyingAngle != 0)
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
-        let settling = (shape < 1 && stream != nil) || displaySwitchingOn
+        let settling = displaySwitchingOn
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
         let animating = running || moving || settling || trailing
         if visible && (animating || wasAnimating) { needsDisplay = true }
@@ -201,20 +208,22 @@ final class HourglassView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let now = Date()
-        var frame = SandFrame(progress: clock.progress(at: now), flowStartProgress: clock.flowStartProgress)
+        var frame = SandFrame(progress: clock.progress(at: now))
+        frame.topSettledProgress = topSettledProgress
+        frame.bottomSettledProgress = bottomSettledProgress
         var angle = 0.0
         var shadow = (opacity: 1.0, groundOffset: 200.0, footprint: 200.0)
         if let flip {
             angle = flipAngle(at: now)
             frame.progress = flip.from.progress(at: flip.start)
-            frame.flowStartProgress = flip.from.flowStartProgress
             // The first jolt of the turn shakes the crater and pile flat, then the sand lets go and slides.
             frame.shapeAmount = max(0, 1 - angle / SandPhysics.slideThreshold)
             frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
             shadow.opacity = abs(cos(angle))  // lifted off the desk to turn it
         } else if tip != nil || lyingAngle != 0 {
             angle = tipAngle(at: now)
-            frame.shapeAmount = shape * shape * (3 - 2 * shape) * max(0, 1 - abs(angle) / SandPhysics.slideThreshold)
+            // Tipping over shakes the heaps flat before the sand slides along the wall.
+            frame.shapeAmount = max(0, 1 - abs(angle) / SandPhysics.slideThreshold)
             frame.turning = SandPhysics.lyingSand(angle: angle, progress: frame.progress)
             frame.agitation = previewAgitation ?? agitation.level
             shadow = (1, SandPhysics.restingHalfHeight(angle: angle), 186 * abs(cos(angle)) + 400 * abs(sin(angle)))
@@ -225,8 +234,9 @@ final class HourglassView: NSView {
         } else {
             frame.streamTilt = previewAngle ?? streamLean.angle
             frame.agitation = previewAgitation ?? agitation.level
-            frame.shapeAmount = shape * shape * (3 - 2 * shape)
             frame.stream = streamExtent(at: now)
+            frame.landedProgress = SandPhysics.landedProgress(progress: frame.progress, settledProgress: bottomSettledProgress,
+                                                              duration: clock.duration, falling: frame.stream != nil)
         }
 
         let scale = Self.sizes[sizeIndex].scale
@@ -443,6 +453,12 @@ final class HourglassView: NSView {
         return parent
     }
 
+    /// Both heaps are level right now: the top's crater and the bottom's cone start over from the current sand.
+    private func settleSand(at now: Date) {
+        topSettledProgress = clock.progress(at: now)
+        bottomSettledProgress = topSettledProgress
+    }
+
     /// "Pause" or "Resume" for the menu bar's menu, or nil when the timer isn't running or paused.
     var pauseActionTitle: String? {
         let now = Date()
@@ -481,7 +497,7 @@ final class HourglassView: NSView {
             let halfWidth = CGFloat(SandPhysics.outlineHalfWidth) * Self.sizes[sizeIndex].scale
             fallRight = box.maxX - (window.frame.midX + halfWidth) >= (window.frame.midX - halfWidth) - box.minX
         }
-        tipOver(to: fallRight ? .pi / 2 : -.pi / 2) { [weak self] in self?.shape = 0 }
+        tipOver(to: fallRight ? .pi / 2 : -.pi / 2) {}
     }
 
     /// Stands the timer back up; the sand drops into place and starts flowing again.
@@ -503,7 +519,8 @@ final class HourglassView: NSView {
             guard let self else { return }
             clock.restart(at: Date())
             releasedAt = Date()
-            shape = 1
+            topSettledProgress = 0
+            bottomSettledProgress = 0
             needsDisplay = true
         }
         guard flip == nil, tip == nil else { return }

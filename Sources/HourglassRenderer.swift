@@ -13,6 +13,11 @@ struct Theme {
     /// Black caps get light print; colored caps get dark print.
     let darkCap: Bool
 
+    /// Color of the time shown on the base: light on dark caps, a deep shade of the cap on light ones.
+    var displayInk: NSColor {
+        darkCap ? NSColor(white: 0.84, alpha: 1) : (cap.blended(withFraction: 0.72, of: .black) ?? .black)
+    }
+
     static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor {
         NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
     }
@@ -40,7 +45,11 @@ struct Theme {
 /// What the sand is doing in one frame, in the glass's own frame of reference.
 struct SandFrame {
     var progress: Double
-    var flowStartProgress: Double
+    /// Progress when each bulb's sand last settled flat: the top's crater and the bottom's new pile grow from there.
+    var topSettledProgress: Double = 0
+    var bottomSettledProgress: Double = 0
+    /// Sand that has actually landed in the lower bulb (less than `progress` while some is still falling).
+    var landedProgress: Double?
     /// 0 = sand shaken flat (just after a flip), 1 = crater and pile fully formed.
     var shapeAmount: Double = 1
     /// How stirred up the sand is by shaking or a landing (0 = still, 1 = grains leaping).
@@ -301,34 +310,31 @@ final class HourglassRenderer {
     private func topSurface(_ frame: SandFrame) -> Surface? {
         let flat = geo.topSandHeight(progress: frame.progress)
         guard flat > 0.3 else { return nil }
-        let startLevel = max(flat, geo.topSandHeight(progress: frame.flowStartProgress))
-        let tip = P.craterTip(volume: geo.sandVolume * (1 - frame.progress), flatLevel: startLevel)
-        let slope = P.reposeSlope, amount = frame.shapeAmount
-        let neckY = self.neckY
-        let rim = max(0, min(G.bulbRadius, (startLevel - tip) / slope))
+        let crater = P.topCrater(progress: frame.progress, settledProgress: frame.topSettledProgress)
+        let amount = frame.shapeAmount, neckY = self.neckY
         return Surface(
             y: { offset in
-                let crater = max(0, min(startLevel, tip + slope * Double(abs(offset))))
-                return neckY - CGFloat(flat + (crater - flat) * amount)
+                let height = crater.height(atRadius: Double(abs(offset)))
+                return neckY - CGFloat(flat + (height - flat) * amount)
             },
-            slideFrom: CGFloat(rim), slideTo: CGFloat(max(0, -tip / slope)), halfWidth: CGFloat(G.innerRadius(flat)))
+            slideFrom: CGFloat(crater.rim), slideTo: CGFloat(max(0, -crater.tip / P.reposeSlope)), halfWidth: CGFloat(G.innerRadius(flat)))
     }
 
-    /// Lower bulb: a cone at the angle of repose, spreading to the walls as it grows.
+    /// Lower bulb: new sand piles up as a cone at the angle of repose on whatever flat layer was already there.
     private func bottomSurface(_ frame: SandFrame) -> Surface? {
-        let volume = geo.sandVolume * frame.progress
-        guard volume > 1 else { return nil }
-        let flat = G.halfLength - geo.bottomSurfaceDistance(progress: frame.progress)
-        let peak = P.pilePeak(volume: volume)
-        let slope = P.reposeSlope, amount = frame.shapeAmount
-        let bottomY = self.bottomY
+        let landed = frame.landedProgress ?? frame.progress
+        guard geo.sandVolume * landed > 1 else { return nil }
+        let flat = G.halfLength - geo.bottomSurfaceDistance(progress: landed)
+        let pile = P.bottomPile(progress: landed, settledProgress: frame.bottomSettledProgress)
+        let amount = frame.shapeAmount, bottomY = self.bottomY
+        let wall = G.innerRadius(G.halfLength - flat)
         return Surface(
             y: { offset in
-                let pile = max(0, peak - slope * Double(abs(offset)))
-                return bottomY - CGFloat(flat + (pile - flat) * amount)
+                let height = pile.height(atRadius: Double(abs(offset)))
+                return bottomY - CGFloat(flat + (height - flat) * amount)
             },
-            slideFrom: 0, slideTo: CGFloat(min(G.bulbRadius, peak / slope)),
-            halfWidth: CGFloat(min(G.innerRadius(G.halfLength - flat), peak / slope)))
+            slideFrom: 0, slideTo: CGFloat(pile.foot),
+            halfWidth: CGFloat(pile.layer > 0 ? wall : min(wall, pile.foot)))
     }
 
     /// The area below a surface, closed off at `closingAt`; the glass clip trims it to the bulb.
@@ -531,7 +537,7 @@ final class HourglassRenderer {
         fill(offsetY: -0.5, NSColor(white: 0, alpha: theme.darkCap ? 0.5 : 0.25))
 
         // Ink shaded like the ring it's printed on: darker toward the edges, brightest where the ring catches the light.
-        let ink = theme.darkCap ? NSColor(white: 0.84, alpha: 1) : (theme.cap.blended(withFraction: 0.6, of: .black) ?? .black)
+        let ink = theme.displayInk
         ctx.saveGState()
         ctx.addPath(glyphs)
         ctx.clip()

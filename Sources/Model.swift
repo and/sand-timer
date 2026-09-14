@@ -5,15 +5,12 @@ struct SandClock {
     private(set) var duration: TimeInterval
     private(set) var storedProgress: Double
     private(set) var runningSince: Date?
-    /// Progress when sand last started flowing from a settled heap (a flip or restart). The top crater grows from here.
-    private(set) var flowStartProgress: Double
 
     /// A fresh timer sits with all its sand at the bottom, waiting to be flipped.
-    init(duration: TimeInterval, progress: Double = 1, runningSince: Date? = nil, flowStartProgress: Double? = nil) {
+    init(duration: TimeInterval, progress: Double = 1, runningSince: Date? = nil) {
         self.duration = duration
         self.storedProgress = progress
         self.runningSince = runningSince
-        self.flowStartProgress = flowStartProgress ?? progress
     }
 
     /// When the top bulb empties, if the sand is flowing.
@@ -43,13 +40,11 @@ struct SandClock {
     /// Turning the glass over: whatever had fallen is now on top.
     mutating func flip(at now: Date) {
         storedProgress = 1 - progress(at: now)
-        flowStartProgress = storedProgress
         runningSince = now
     }
 
     mutating func restart(at now: Date) {
         storedProgress = 0
-        flowStartProgress = 0
         runningSince = now
     }
 

@@ -61,6 +61,56 @@ enum SandPhysics {
         return bisect(lowest, flatLevel) { craterVolume(tip: $0, flatLevel: flatLevel, slope: slope) < volume }
     }
 
+    /// The lower bulb's sand: a flat layer of whatever had already settled there (after a flip, being stood back up, or
+    /// a hard shake), with the sand that has fallen since piled on top of it as a cone at the angle of repose.
+    struct BottomPile {
+        /// Height of the flat layer above the cap.
+        let layer: Double
+        /// Height of the cone's tip above the layer.
+        let peak: Double
+
+        func height(atRadius rho: Double) -> Double { layer + max(0, peak - reposeSlope * rho) }
+
+        /// How far out the cone reaches before it meets the layer or the wall.
+        var foot: Double { min(G.innerRadius(G.halfLength - layer), peak / reposeSlope) }
+    }
+
+    /// Seconds a grain spends between leaving the top and landing at the bottom: the pause before the stream is let go,
+    /// then the fall through the lower bulb.
+    static var flightTime: Double { releaseDelay + (2 * G.halfLength / gravity).squareRoot() }
+
+    /// How much of the sand has actually landed in the lower bulb. While sand is falling, the last `flightTime` seconds'
+    /// worth is still in the air, so the pile lags the top; it never dips below what had already settled.
+    static func landedProgress(progress: Double, settledProgress: Double, duration: Double, falling: Bool) -> Double {
+        guard falling, duration > 0 else { return progress }
+        return min(progress, max(settledProgress, progress - flightTime / duration))
+    }
+
+    static func bottomPile(progress: Double, settledProgress: Double) -> BottomPile {
+        let settled = min(max(0, settledProgress), progress)
+        let layer = settled > 0 ? G.halfLength - geometry.bottomSurfaceDistance(progress: settled) : 0
+        return BottomPile(layer: layer, peak: pilePeak(volume: geometry.sandVolume * max(0, progress - settled)))
+    }
+
+    /// The upper bulb's sand: flat at the level it had when it last settled, with a funnel crater drawn down into it by
+    /// the sand that has drained since.
+    struct TopCrater {
+        /// Height of the flat surface above the neck when it last settled.
+        let level: Double
+        /// Height of the crater's tip above the neck.
+        let tip: Double
+
+        func height(atRadius rho: Double) -> Double { max(0, min(level, tip + reposeSlope * rho)) }
+
+        /// Where the crater meets the flat surface.
+        var rim: Double { max(0, min(G.bulbRadius, (level - tip) / reposeSlope)) }
+    }
+
+    static func topCrater(progress: Double, settledProgress: Double) -> TopCrater {
+        let level = geometry.topSandHeight(progress: min(max(0, settledProgress), progress))
+        return TopCrater(level: level, tip: craterTip(volume: geometry.sandVolume * (1 - progress), flatLevel: level))
+    }
+
     /// How much of the falling sand's sound is grains striking glass rather than sand (0...1), given how much has fallen.
     /// The first grains hit the bare bottom; once a small cone forms the stream lands on sand, though grains rolling off
     /// the cone still tick against the uncovered glass until the pile spreads to the walls.

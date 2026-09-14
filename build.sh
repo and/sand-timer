@@ -1,14 +1,24 @@
 #!/bin/zsh
-# Usage: ./build.sh          build SandTimer.app
-#        ./build.sh test     run the model tests
+# Usage: ./build.sh                     build SandTimer.app
+#        ./build.sh test [word]         run the unit and integration tests (optionally only those matching a word)
+#        ./build.sh test-unit [word]    run only the unit tests (no windows)
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
 
-if [[ "${1:-}" == "test" ]]; then
-  swiftc -swift-version 5 Sources/Model.swift Sources/SandPhysics.swift Tests/main.swift -o build/tests
-  ./build/tests
-  exit
+if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
+  APP_SOURCES=(Sources/Model.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/HourglassView.swift)
+  echo "== Unit tests"
+  swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Unit/*.swift -o build/unit-tests
+  unit_status=0
+  ./build/unit-tests "${2:-}" || unit_status=$?
+  integration_status=0
+  if [[ "$1" == "test" ]]; then
+    echo "\n== Integration tests (opens the timer in windows briefly)"
+    swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Integration/*.swift -o build/integration-tests
+    ./build/integration-tests "${2:-}" || integration_status=$?
+  fi
+  exit $(( unit_status || integration_status ))
 fi
 
 APP=build/SandTimer.app

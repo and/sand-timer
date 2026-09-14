@@ -59,9 +59,14 @@ enum Sounds {
 
     /// Plays the landing sound, louder for harder impacts. Each landing gets its own copy so quick bounces can overlap.
     static func playFall(impactSpeed: Double) {
-        guard impactSpeed >= quietestFall, let sound = fall?.copy() as? NSSound else { return }
-        sound.volume = Float(min(1, 0.12 + impactSpeed / 2.5))
+        guard let volume = fallVolume(impactSpeed: impactSpeed), let sound = fall?.copy() as? NSSound else { return }
+        sound.volume = volume
         sound.play()
+    }
+
+    /// Volume for a landing at `impactSpeed` (m/s), or nil if it's too gentle to hear.
+    static func fallVolume(impactSpeed: Double) -> Float? {
+        impactSpeed >= quietestFall ? Float(min(1, 0.12 + impactSpeed / 2.5)) : nil
     }
 
     private struct Noise {
