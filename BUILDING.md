@@ -26,6 +26,21 @@ PNG — it takes `--minutes`, `--progress`, `--theme`, `--base`, `--angle`, `--s
 and `--dark` — and `--iconset` renders the app icon at every size macOS asks for,
 which is where `AppIcon.icns` comes from. The images in the README were made that way.
 
+The animation is the same renderer run across a range of `--progress` values and
+stitched together, so it shows the real drain rather than a recording:
+
+```sh
+for i in $(seq 0 35); do
+  p=$(python3 -c "print(f'{0.02 + 0.96 * $i / 35:.4f}')")
+  SandTimer --snapshot frames/f$(printf %03d $i).png --minutes 25 --progress "$p"
+done
+ffmpeg -framerate 12 -i frames/f%03d.png -vf "scale=260:-1:flags=lanczos,palettegen" palette.png
+ffmpeg -framerate 12 -i frames/f%03d.png -i palette.png \
+  -lavfi "scale=260:-1:flags=lanczos[x];[x][1:v]paletteuse" docs/sand-timer.gif
+```
+
+The shared palette matters: generated per frame, the sand's speckle bands badly.
+
 ## Layout
 
 | | |

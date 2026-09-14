@@ -4,7 +4,7 @@ A sand timer that sits on your Mac's desktop, above your other windows. Click it
 start, and watch the sand run.
 
 <p align="center">
-  <img src="docs/hourglass.png" width="290" alt="The Sand Timer hourglass, mid-pour, with 14:30 remaining on the display in its base">
+  <img src="docs/sand-timer.gif" width="260" alt="The Sand Timer running: sand falls in a stream from the top chamber, hollowing a crater as it drains and building a pile below, while the display in the base counts down">
 </p>
 
 ## Get it
