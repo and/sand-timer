@@ -49,8 +49,8 @@ enum SandPhysics {
     }
 
     /// Tip height of the crater once the sand that started flat at `flatLevel` is down to `volume`.
-    /// Equals `flatLevel` (no crater) when nothing has drained; goes below zero at the very end,
-    /// when only a ring of sand clings to the funnel walls.
+    /// Equals `flatLevel` (no crater) when nothing has drained. The funnel walls are steeper than the sand's slope,
+    /// so near the end the tip sinks toward the neck and the last sand drains as a shallow cone.
     static func craterTip(volume: Double, flatLevel: Double, slope: Double = reposeSlope) -> Double {
         let lowest = -slope * (G.bulbRadius + 1)
         if volume >= craterVolume(tip: flatLevel, flatLevel: flatLevel, slope: slope) { return flatLevel }
@@ -169,6 +169,43 @@ enum SandPhysics {
             if isBelow(mid) { low = mid } else { high = mid }
         }
         return (low + high) / 2
+    }
+}
+
+/// The timer falling to the bottom of the screen when it's let go, landing with a small bounce.
+/// Heights are screen points with y growing upward, like AppKit window positions.
+struct Drop {
+    static let gravity = 3000.0
+    /// Fraction of the landing speed kept on each bounce.
+    static let restitution = 0.3
+    /// Bounces slower than this just settle.
+    static let minBounceSpeed = 80.0
+
+    let floor: Double
+    private(set) var y: Double
+    private(set) var velocity = 0.0
+    private(set) var isResting: Bool
+
+    /// Starting at or below the floor (dropped onto the Dock), it simply rests on the floor.
+    init(y: Double, floor: Double) {
+        self.floor = floor
+        self.y = max(y, floor)
+        isResting = y <= floor
+    }
+
+    mutating func step(dt: Double) {
+        guard !isResting else { return }
+        velocity -= Self.gravity * dt
+        y += velocity * dt
+        guard y <= floor else { return }
+        y = floor
+        let rebound = -velocity * Self.restitution
+        if rebound < Self.minBounceSpeed {
+            velocity = 0
+            isResting = true
+        } else {
+            velocity = rebound
+        }
     }
 }
 

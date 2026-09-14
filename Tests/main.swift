@@ -174,4 +174,21 @@ check(abs(sway.tilt) <= Sway.maxTilt, "tilt is clamped")
 for _ in 0..<(60 * 4) { sway.step(acceleration: 0, dt: 1.0 / 60) }
 check(sway.isSettled && sway.tilt == 0, "sway settles back to upright")
 
+// Gravity on the window.
+var drop = Drop(y: 700, floor: 50)
+check(!drop.isResting, "a raised timer starts falling")
+var lowest = drop.y, bounced = false, steps = 0
+while !drop.isResting && steps < 60 * 10 {
+    drop.step(dt: 1.0 / 60)
+    lowest = min(lowest, drop.y)
+    if drop.velocity > 0 { bounced = true }
+    steps += 1
+}
+check(drop.isResting && drop.y == 50, "comes to rest on the floor")
+check(lowest >= 50, "never sinks below the floor")
+check(bounced, "bounces a little on landing")
+check(Double(steps) / 60 < 1.5, "settles quickly")
+let fromDock = Drop(y: 20, floor: 50)
+check(fromDock.isResting && fromDock.y == 50, "let go below the floor, it sits on the floor")
+
 if failures == 0 { print("All tests passed") } else { print("\(failures) failure(s)"); exit(1) }

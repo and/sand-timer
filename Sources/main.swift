@@ -22,19 +22,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.hasShadow = false
         panel.contentView = view
         panel.setFrameOrigin(initialOrigin(for: view.frame.size))
+        view.restOnFloor()
         panel.orderFrontRegardless()
         view.startTicking()
         self.panel = panel
     }
 
+    /// Where it was last left horizontally (if that's still on a screen), else the right side; the view then settles it
+    /// onto the bottom of that screen.
     private func initialOrigin(for size: NSSize) -> CGPoint {
-        if let saved = UserDefaults.standard.array(forKey: "origin") as? [CGFloat], saved.count == 2 {
-            let origin = CGPoint(x: saved[0], y: saved[1])
-            let frame = NSRect(origin: origin, size: size)
-            if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) { return origin }
+        if let saved = UserDefaults.standard.array(forKey: "origin") as? [CGFloat], saved.count == 2,
+           let screen = NSScreen.screens.first(where: { $0.visibleFrame.minX <= saved[0] && saved[0] + size.width <= $0.visibleFrame.maxX }) {
+            return CGPoint(x: saved[0], y: screen.visibleFrame.minY)
         }
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        return CGPoint(x: visible.maxX - size.width - 40, y: visible.minY + 40)
+        return CGPoint(x: visible.maxX - size.width - 40, y: visible.minY)
     }
 }
 

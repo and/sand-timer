@@ -37,6 +37,8 @@ final class HourglassView: NSView {
     private var dragVelocity = 0.0
     private var smoothedVelocity = 0.0
     private var sway = Sway()
+    /// Set while the timer is falling to the bottom of the screen.
+    private var drop: Drop?
     /// Extra margin while the window is grown so a turning or swaying glass isn't clipped.
     private var expansion: (dx: CGFloat, dy: CGFloat)?
     private var lastTick = CACurrentMediaTime()
@@ -97,6 +99,12 @@ final class HourglassView: NSView {
         let acceleration = abs(velocity - smoothedVelocity) < 0.01 ? 0 : (velocity - smoothedVelocity) / dt
         smoothedVelocity = abs(velocity) < 0.01 ? 0 : velocity
         sway.step(acceleration: acceleration, dt: dt)
+        if var falling = drop {
+            falling.step(dt: dt)
+            setTimerY(CGFloat(falling.y))
+            drop = falling.isResting ? nil : falling
+            if falling.isResting { saveWindowOrigin() }
+        }
 
         let stream = streamExtent(at: now)
         let patter = grainSoundOn && stream.map { $0.front > 150 && $0.tail < 150 } == true
@@ -172,6 +180,7 @@ final class HourglassView: NSView {
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) { return rightMouseDown(with: event) }
         guard let window, flip == nil else { return }
+        drop = nil  // caught mid-fall
         drag = (NSEvent.mouseLocation, window.frame.origin)
         dragged = false
         lastDragSample = nil
@@ -197,7 +206,7 @@ final class HourglassView: NSView {
         defer { drag = nil; dragged = false }
         guard drag != nil else { return }
         if dragged {
-            saveWindowOrigin()
+            letGo()
         } else if event.clickCount == 1 {
             flipTimer()
         }
@@ -349,6 +358,45 @@ final class HourglassView: NSView {
         let size = Self.contentSize(sizeIndex: sizeIndex)
         let frame = window.frame
         window.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY, width: size.width, height: size.height), display: true)
+        restOnFloor()
+    }
+
+    // MARK: Gravity
+
+    /// Window y that puts the bottom cap on the bottom of the screen (just above the Dock), with its shadow below.
+    private var floorY: CGFloat? {
+        guard let screen = window?.screen ?? NSScreen.main else { return nil }
+        return (screen.visibleFrame.minY - Self.pad * Self.sizes[sizeIndex].scale).rounded()
+    }
+
+    /// The timer's own window y, ignoring any temporary growth for turning or swaying.
+    private var timerY: CGFloat? {
+        guard let window else { return nil }
+        return window.frame.minY + (expansion?.dy ?? 0)
+    }
+
+    private func setTimerY(_ y: CGFloat) {
+        guard let window else { return }
+        window.setFrameOrigin(CGPoint(x: window.frame.minX, y: y - (expansion?.dy ?? 0)))
+    }
+
+    /// Let go after a drag: fall to the bottom of the screen.
+    private func letGo() {
+        guard let y = timerY, let floor = floorY else { return }
+        let falling = Drop(y: Double(y), floor: Double(floor))
+        if falling.isResting {
+            setTimerY(floor)
+            saveWindowOrigin()
+        } else {
+            drop = falling
+        }
+    }
+
+    /// Places the timer resting on the bottom of its screen right away.
+    func restOnFloor() {
+        guard let floor = floorY else { return }
+        drop = nil
+        setTimerY(floor)
         saveWindowOrigin()
     }
 
