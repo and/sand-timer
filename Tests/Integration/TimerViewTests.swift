@@ -160,6 +160,24 @@ func timerViewTests() {
             let one = streamWidth(minutes: 1), pomodoro = streamWidth(minutes: 25), hour = streamWidth(minutes: 60)
             expect(one > pomodoro && pomodoro > hour, "stream widths in pixels: 1 min \(one), 25 min \(pomodoro), 60 min \(hour)")
         }
+        test("sand pours through a wide neck without a seam where it meets the stream") {
+            let view = HourglassView(minutes: 1, themeIndex: 0, sizeIndex: 2)
+            view.setPreview(progress: 0.4, running: true)
+            let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let pixelsPerUnit = CGFloat(rep.pixelsHigh) / view.bounds.height
+            // Width of sand in each pixel row from just above the neck to well into the stream.
+            let neckRow = Int(view.bounds.midY * pixelsPerUnit)
+            let widths = (neckRow - 2...neckRow + Int(14 * pixelsPerUnit)).map { row in
+                (0..<rep.pixelsWide).filter { x in
+                    guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB), c.alphaComponent > 0.3 else { return false }
+                    return c.blueComponent > c.redComponent * 1.3 && c.blueComponent > c.greenComponent * 1.8
+                }.count
+            }
+            let steps = zip(widths, widths.dropFirst()).map { $0 - $1 }
+            expect(widths.first! > widths.last! + 8, "the sand narrows from the neck into the stream: \(widths)")
+            expect(steps.allSatisfy { $0 <= 6 }, "no sudden step anywhere: \(widths)")
+        }
         test("turning, lying and shaken poses draw without problems") {
             for (angle, shake) in [(1.2, 0.0), (.pi / 2, 1.0), (-.pi / 2, 0.5), (0.2, 1.0)] {
                 let view = HourglassView(minutes: 5, themeIndex: 1, sizeIndex: 1)

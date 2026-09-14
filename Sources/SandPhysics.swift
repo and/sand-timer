@@ -32,6 +32,24 @@ enum SandPhysics {
         min(2.6, max(0.6, pow(referenceMinutes / max(minutes, 0.01), 0.4)))
     }
 
+    /// What the falling stream looks like `fraction` of the way from the neck down to where it lands. Grains leave the
+    /// neck packed together and spread apart as they speed up, so the solid core narrows and fades while loose grains
+    /// stray further out. Widths are relative to the opening.
+    struct StreamSlice {
+        let coreWidth: Double
+        let coreOpacity: Double
+        /// How far loose grains stray from the center line, in opening widths.
+        let spread: Double
+    }
+
+    static func streamSlice(at fraction: Double) -> StreamSlice {
+        let f = min(max(fraction, 0), 1)
+        return StreamSlice(coreWidth: 1 - 0.5 * f, coreOpacity: 0.95 - 0.65 * f, spread: 0.3 + 1.2 * f)
+    }
+
+    /// Distance (drawing units) below the neck over which the sand in the opening converges into the stream.
+    static func funnelLength(neckScale: Double) -> Double { 5 + 3 * neckScale }
+
     static func fallDistance(after seconds: Double) -> Double {
         seconds <= 0 ? 0 : 0.5 * gravity * seconds * seconds
     }
