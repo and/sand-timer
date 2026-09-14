@@ -34,8 +34,9 @@ the menu bar and the time left shows up there instead, where you can pause and r
 ## What it does
 
 The sand behaves like sand. A crater deepens in the top as it drains, a pile builds up
-underneath, and the stream loosens as it falls. A short timer gets a narrow neck and a
-long one gets a wider neck, so the sand always finishes when it should.
+underneath, and the stream loosens as it falls. A short timer gets a wide neck and a
+thick stream, and a long one a narrow neck and a fine trickle, so the sand always
+finishes when it should.
 
 Pick it up and drop it, shake it, or knock it over, and the sand reacts the way you
 would expect. Flip it and the display in the base turns over with it.
@@ -48,6 +49,13 @@ on sand as the pile grows, a rattle while you shake it, and a chime at the end.
   <img src="docs/theme-rose-dark.png" width="190" alt="The timer with rose sand on a dark desktop">
 </p>
 
+## Support it
+
+Sand Timer is free and open source. If it brightens your desk and you'd like to say
+thanks, you can [sponsor it on GitHub](https://github.com/sponsors/and) or
+[buy me a coffee on Ko-fi](https://ko-fi.com/aanand). It's entirely optional, and the
+app will always be free.
+
 ---
 
-Building from source: see [BUILDING.md](BUILDING.md).
+Building from source: see [BUILDING.md](BUILDING.md). Released under the [MIT License](LICENSE).

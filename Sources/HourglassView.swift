@@ -7,6 +7,8 @@ final class HourglassView: NSView {
     static let durations = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60]
     /// 25 minutes is the classic Pomodoro work session.
     static let pomodoroMinutes = 25
+    /// Where "Support Sand Timer" leads: the free app's GitHub Sponsors page.
+    static let supportURL = URL(string: "https://github.com/sponsors/and")!
     static let sizes: [(name: String, scale: CGFloat)] = [("Small", 0.5), ("Medium", 0.7), ("Large", 1.0)]
     static let mediumSizeIndex = 1
     static let pad: CGFloat = 12
@@ -428,6 +430,8 @@ final class HourglassView: NSView {
         menu.addItem(login)
         menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))
         menu.addItem(.separator())
+        menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
+        menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit Sand Timer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
@@ -529,6 +533,7 @@ final class HourglassView: NSView {
     }
 
     @objc private func hideClicked() { onHide?() }
+    @objc private func supportClicked() { NSWorkspace.shared.open(Self.supportURL) }
 
     @objc private func loginToggled() {
         UserDefaults.standard.set(true, forKey: "loginItemConfigured")
