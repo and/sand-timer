@@ -94,16 +94,27 @@ struct HourglassGeometry {
         cumulative = c
     }
 
-    static func outerRadius(_ distance: Double) -> Double {
+    /// `neckScale` sets the size of the opening sand pours through (short timers need a wider one); the bulbs stay the same.
+    /// Short timers get a wider waist. Long ones keep the standard waist, which a real glass needs to stay sturdy,
+    /// and instead have thicker glass at the pinch around a narrower bore (see `innerRadius`).
+    static func outerRadius(_ distance: Double, neckScale: Double = 1) -> Double {
         let d = abs(distance)
-        guard d > neckHalf else { return neckRadius }
+        let neck = neckRadius * max(1, neckScale)
+        guard d > neckHalf else { return neck }
         let u = min(1, (d - neckHalf) / (taperLength - neckHalf))
         let easeOut = 1 - pow(1 - u, 2.5)
         let smooth = u * u * (3 - 2 * u)
-        return neckRadius + (bulbRadius - neckRadius) * (0.6 * easeOut + 0.4 * smooth)
+        return neck + (bulbRadius - neck) * (0.6 * easeOut + 0.4 * smooth)
     }
 
-    static func innerRadius(_ distance: Double) -> Double { max(1.2, outerRadius(distance) - wall) }
+    static func innerRadius(_ distance: Double, neckScale: Double = 1) -> Double {
+        let plain = outerRadius(distance, neckScale: neckScale) - wall
+        guard neckScale < 1 else { return max(1.2 * neckScale, plain) }
+        // A narrower bore than the waist allows: the glass thickens toward the pinch, fading out a few units away.
+        let bore = (neckRadius - wall) * neckScale
+        let extra = (neckRadius - wall) - bore
+        return max(bore, plain - extra * exp(-abs(distance) / 6))
+    }
 
     var halfVolume: Double { cumulative[cumulative.count - 1] }
     var sandVolume: Double { volume(upTo: Self.sandFullHeight) }

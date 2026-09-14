@@ -21,6 +21,17 @@ enum SandPhysics {
     static let slideThreshold = 0.61
     private static let sliceHeight = 1.0
 
+    /// Reference duration for the neck as drawn at `neckScale` 1.
+    static let referenceMinutes = 25.0
+
+    /// How wide the neck must be, relative to the reference timer, for the same sand to run out in `minutes`.
+    /// Sand pours through an opening at a rate proportional to its width to the power 2.5 (Beverloo's law), and the
+    /// amount is fixed, so width ∝ minutes^-0.4. Capped so the shortest timers still look like an hourglass; real
+    /// short timers get the rest of the way with coarser sand.
+    static func neckScale(minutes: Double) -> Double {
+        min(2.6, max(0.6, pow(referenceMinutes / max(minutes, 0.01), 0.4)))
+    }
+
     static func fallDistance(after seconds: Double) -> Double {
         seconds <= 0 ? 0 : 0.5 * gravity * seconds * seconds
     }

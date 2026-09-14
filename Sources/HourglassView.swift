@@ -263,6 +263,7 @@ final class HourglassView: NSView {
         } else if let displayOnAt {
             display.brightness = ease((now.timeIntervalSince(displayOnAt) - SandPhysics.releaseDelay) / Self.displayFade)
         }
+        renderer.neckScale = CGFloat(SandPhysics.neckScale(minutes: Double(minutes)))
         renderer.draw(frame, time: CACurrentMediaTime(), theme: Theme(color: themeIndex, base: base), display: display)
         ctx.restoreGState()
     }

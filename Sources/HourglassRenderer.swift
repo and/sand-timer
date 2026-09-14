@@ -83,6 +83,14 @@ final class HourglassRenderer {
     private var bottomY: CGFloat { neckY + CGFloat(G.halfLength) }
     private lazy var outerPath = glassPath(inner: false)
     private lazy var innerPath = glassPath(inner: true)
+    /// Width of the neck relative to the reference timer; shorter timers have a wider neck and a thicker stream.
+    var neckScale: CGFloat = 1 {
+        didSet {
+            guard neckScale != oldValue else { return }
+            outerPath = glassPath(inner: false)
+            innerPath = glassPath(inner: true)
+        }
+    }
     private let speckles: [(rect: CGRect, light: Bool)]
     /// The glass and caps never change, so they're rendered once per color and pixel scale and reused every frame.
     private var layerCache: [String: (back: CGImage, front: CGImage)] = [:]
@@ -145,7 +153,8 @@ final class HourglassRenderer {
             let bottom = bottomSurface(frame)
             // Shaken sand ripples as well.
             if let top {
-                fillSand(region(under: top, closingAt: neckY + 4, lowest: neckY + 4, ripple: stir, time: time), theme: theme, jostle: jostle)
+                // Stops at the neck; below it, the stream carries the sand on.
+                fillSand(region(under: top, closingAt: neckY + 1, lowest: neckY + 1, ripple: stir, time: time), theme: theme, jostle: jostle)
             }
             if let bottom {
                 fillSand(region(under: bottom, closingAt: bottomY + 8, lowest: bottomY + 1, ripple: stir, time: time), theme: theme, jostle: jostle)
@@ -171,7 +180,7 @@ final class HourglassRenderer {
 
     private func cachedLayers(theme: Theme, pixelScale: CGFloat) -> (back: CGImage, front: CGImage)? {
         let scale = (pixelScale * 4).rounded(.up) / 4
-        let key = "\(theme.name)@\(scale)"
+        let key = "\(theme.name)@\(scale)/neck\(neckScale)"
         if let layers = layerCache[key] { return layers }
         guard let back = renderLayer(scale: scale, { drawGlassBody() }),
               let front = renderLayer(scale: scale, { drawGlassFront(theme: theme) }) else { return nil }
@@ -223,7 +232,7 @@ final class HourglassRenderer {
         for i in 0...180 {
             let y = 20 + CGFloat(i) * 2
             let d = min(Double(abs(y - neckY)), G.halfLength)
-            let r = inner ? G.innerRadius(d) : G.outerRadius(d)
+            let r = inner ? G.innerRadius(d, neckScale: Double(neckScale)) : G.outerRadius(d, neckScale: Double(neckScale))
             right.append(CGPoint(x: cx + CGFloat(r), y: y))
         }
         let path = NSBezierPath()
@@ -429,15 +438,16 @@ final class HourglassRenderer {
             ctx.saveGState()
             ctx.concatenate(CGAffineTransform(a: 1, b: 0, c: lean, d: 1, tx: -lean * neckY, ty: 0))
             let wobble = CGFloat(sin(time * 23) * 0.25 + sin(time * 31) * frame.agitation * 1.5)
-            let width: CGFloat = stream.tail > 0 ? 1.3 : 2.2
+            // As thick as the opening it pours through.
+            let width: CGFloat = (stream.tail > 0 ? 1.3 : 2.2) * neckScale
             ctx.setFillColor(theme.sand.withAlphaComponent(0.9).cgColor)
             ctx.fill(CGRect(x: cx - width / 2 + wobble, y: streamTop, width: width, height: streamEnd - streamTop))
             let length = Double(landing - (neckY - 3))
-            for i in 0..<max(1, Int(length / 5)) {
+            for i in 0..<max(1, Int(length / 5 * Double(neckScale))) {
                 let speed = 170 + Self.hash(i, 5) * 60
                 let y = neckY - 3 + CGFloat((time * speed + Self.hash(i, 6) * length).truncatingRemainder(dividingBy: length))
                 guard y >= streamTop && y <= streamEnd else { continue }
-                grain(i, cx + CGFloat(sin(time * 11 + Double(i)) * 0.8) + wobble, y, 1.9)
+                grain(i, cx + CGFloat(sin(time * 11 + Double(i)) * 0.8) * neckScale + wobble, y, 1.9)
             }
             fillGrains()
             ctx.restoreGState()
