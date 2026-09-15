@@ -116,16 +116,35 @@ final class HourglassRenderer {
     }
 
     /// Shadow on the desk, drawn upright even when the glass is tilted. Fades as the timer is lifted to flip.
-    /// `groundOffset` is how far below the center the timer touches the ground, `footprint` how wide it sits on it.
-    func drawShadow(opacity: CGFloat, groundOffset: CGFloat = 200, footprint: CGFloat = 200) {
-        guard opacity > 0.01 else { return }
+    /// The timer's shadow on the ground, drawn upright even when the glass is tilted. It's darkest only where solid parts
+    /// touch the ground (the base when standing, the two end caps when lying down, since the glass between them is
+    /// raised and lets light through), fading smoothly outward, and it softens and fades as the timer is lifted.
+    /// - `groundOffset`: how far below the timer's center the ground is.
+    /// - `lying`: 0 standing on its base, 1 lying on its side.
+    /// - `strength`: 1 resting on the ground, toward 0 as it's lifted away.
+    func drawShadow(groundOffset: CGFloat, lying: CGFloat, strength: CGFloat) {
+        guard strength > 0.01 else { return }
         let ground = neckY + groundOffset
-        NSGradient(starting: NSColor(white: 0, alpha: 0.26 * opacity), ending: NSColor(white: 0, alpha: 0))?
-            .draw(in: NSBezierPath(ovalIn: CGRect(x: cx - footprint / 2 - 4, y: ground - 12, width: footprint + 8, height: 24)),
-                  relativeCenterPosition: .zero)
-        NSGradient(starting: NSColor(white: 0, alpha: 0.5 * opacity), ending: NSColor(white: 0, alpha: 0))?
-            .draw(in: NSBezierPath(ovalIn: CGRect(x: cx - footprint / 2 + 14, y: ground - 5, width: footprint - 28, height: 9)),
-                  relativeCenterPosition: .zero)
+        let lift = 1 - strength
+        func pool(centerX: CGFloat, width: CGFloat, height: CGFloat, alpha: CGFloat) {
+            guard alpha > 0.005 else { return }
+            NSGradient(colorsAndLocations:
+                (NSColor(white: 0, alpha: alpha), 0),
+                (NSColor(white: 0, alpha: alpha * 0.55), 0.35),
+                (NSColor(white: 0, alpha: alpha * 0.18), 0.7),
+                (NSColor(white: 0, alpha: 0), 1)
+            )?.draw(in: NSBezierPath(ovalIn: CGRect(x: centerX - width / 2, y: ground - height / 2, width: width, height: height)),
+                    relativeCenterPosition: .zero)
+        }
+        // A soft, faint pool around the whole footprint.
+        let length = 186 + (400 - 186) * lying
+        pool(centerX: cx, width: length + 70 + 60 * lift, height: 26 + 16 * lift, alpha: 0.13 * strength)
+        // Darker contact shadows only where it touches.
+        let contact = strength * strength
+        pool(centerX: cx, width: 175 + 40 * lift, height: 10 + 6 * lift, alpha: 0.3 * contact * max(0, 1 - 2 * lying))
+        for side: CGFloat in [-1, 1] {
+            pool(centerX: cx + side * 178, width: 58 + 30 * lift, height: 9 + 6 * lift, alpha: 0.32 * contact * max(0, 2 * lying - 1))
+        }
     }
 
     func draw(_ frame: SandFrame, time: CFTimeInterval, theme: Theme, display: BaseDisplay) {

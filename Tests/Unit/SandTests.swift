@@ -237,6 +237,15 @@ func sandTests() {
                 expect(near(P.centerFromPivot(angle: a, side: 1).y, P.restingHalfHeight(angle: a), 1e-9), "at \(a)")
             }
         }
+        test("the shadow is full on the ground and fades away as the timer is lifted") {
+            expect(P.shadowStrength(heightAboveGround: 0) == 1 && P.shadowStrength(heightAboveGround: -5) == 1, "resting on the ground")
+            expect(P.shadowStrength(heightAboveGround: 200) == 0, "no shadow when floating well above it")
+            var last = 1.0
+            for h in stride(from: 0.0, through: 100, by: 5) {
+                expect(P.shadowStrength(heightAboveGround: h) <= last, "at \(h)")
+                last = P.shadowStrength(heightAboveGround: h)
+            }
+        }
         test("the outline is the base discs' width standing and the full length lying down") {
             expect(near(P.restingHalfHeight(angle: 0), 200) && near(P.restingHalfHeight(angle: .pi / 2), 93))
             expect(near(P.restingHalfWidth(angle: 0), 93) && near(P.restingHalfWidth(angle: .pi / 2), 200))

@@ -331,6 +331,13 @@ enum SandPhysics {
         return (x * cos(angle) + y * sin(angle), -x * sin(angle) + y * cos(angle))
     }
 
+    /// How strong the timer's shadow on the ground is (1 = resting on it), given how far above the ground its lowest
+    /// point is, in drawing units. A lifted object's shadow fades quickly, so a timer floating mid-screen casts none.
+    static func shadowStrength(heightAboveGround height: Double) -> Double {
+        let t = min(1, max(0, (height - 0.5) / 80))
+        return 1 - t * t * (3 - 2 * t)
+    }
+
     /// Half the width of the timer's outline when tilted `angle` radians, in drawing units.
     static func restingHalfWidth(angle: Double) -> Double { outlineHalfWidth * abs(cos(angle)) + 200 * abs(sin(angle)) }
 

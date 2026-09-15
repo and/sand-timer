@@ -100,11 +100,25 @@ func timerViewTests() {
             timer.view.perform(NSSelectorFromString("letGo"))
             timer.settle(minimum: 0.6)
             expect(abs(timer.center.y - midAir) < 1, "stays in mid-air: \(timer.center.y) vs \(midAir)")
+            // Nothing below it to cast a shadow on: the soft grey pool under the base is gone.
+            func shadowPixels() -> Int {
+                let rep = timer.render()
+                let ppu = CGFloat(rep.pixelsHigh) / timer.view.bounds.height * timer.scale
+                let groundRow = Int(timer.view.bounds.midY / timer.view.bounds.height * CGFloat(rep.pixelsHigh) + 203 * ppu)
+                return (groundRow..<min(rep.pixelsHigh, groundRow + Int(8 * ppu))).reduce(0) { total, row in
+                    total + stride(from: 0, to: rep.pixelsWide, by: 2).filter { x in
+                        guard let c = rep.colorAt(x: x, y: row) else { return false }
+                        return c.alphaComponent > 0.03 && c.alphaComponent < 0.9
+                    }.count
+                }
+            }
+            expect(shadowPixels() == 0, "a floating timer casts no shadow (\(shadowPixels()) shadow pixels)")
             timer.click(); timer.settle()
             expect(abs(timer.center.y - midAir) < 1 && timer.isRunning, "flipping in mid-air doesn't make it fall")
             timer.menu("floatToggled")
             timer.settle(minimum: 0.6)
             expect(!timer.view.floats && abs(timer.center.y - timer.screen.minY - 200 * timer.scale) < 1, "falls to the ground when turned off")
+            expect(shadowPixels() > 50, "back on the ground, it casts a shadow again")
             UserDefaults.standard.set(false, forKey: "float")
         }
     }

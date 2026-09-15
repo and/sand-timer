@@ -253,21 +253,20 @@ final class HourglassView: NSView {
         frame.topSettledProgress = topSettledProgress
         frame.bottomSettledProgress = bottomSettledProgress
         var angle = 0.0
-        var shadow = (opacity: 1.0, groundOffset: 200.0, footprint: 200.0)
+        var liftedByHand = 1.0  // a flip lifts the timer off the desk
         if let flip {
             angle = flipAngle(at: now)
             frame.progress = flip.from.progress(at: flip.start)
             // The first jolt of the turn shakes the crater and pile flat, then the sand lets go and slides.
             frame.shapeAmount = max(0, 1 - angle / SandPhysics.slideThreshold)
             frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
-            shadow.opacity = abs(cos(angle))  // lifted off the desk to turn it
+            liftedByHand = abs(cos(angle))
         } else if tip != nil || lyingAngle != 0 {
             angle = tipAngle(at: now)
             // Tipping over shakes the heaps flat before the sand slides along the wall.
             frame.shapeAmount = max(0, 1 - abs(angle) / SandPhysics.slideThreshold)
             frame.turning = SandPhysics.lyingSand(angle: angle, progress: frame.progress)
             frame.agitation = previewAgitation ?? agitation.level
-            shadow = (1, SandPhysics.restingHalfHeight(angle: angle), 186 * abs(cos(angle)) + 400 * abs(sin(angle)))
         } else if let previewAngle, previewAngle > SandPhysics.slideThreshold {
             angle = previewAngle
             frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
@@ -294,9 +293,16 @@ final class HourglassView: NSView {
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -100, y: -200)
         }
+        // The shadow falls on the ground (the bottom of the screen) and fades the higher the timer is above it.
+        let groundOffset = SandPhysics.restingHalfHeight(angle: angle)
+        var strength = liftedByHand
+        if let window, let screen = window.screen ?? NSScreen.main {
+            let lowestPoint = window.frame.midY + shift.y - CGFloat(groundOffset) * scale
+            strength *= SandPhysics.shadowStrength(heightAboveGround: Double((lowestPoint - screen.visibleFrame.minY) / scale))
+        }
         ctx.saveGState()
         placeTimer(rotated: false)
-        renderer.drawShadow(opacity: CGFloat(shadow.opacity), groundOffset: CGFloat(shadow.groundOffset), footprint: CGFloat(shadow.footprint))
+        renderer.drawShadow(groundOffset: CGFloat(groundOffset), lying: CGFloat(abs(sin(angle))), strength: CGFloat(strength))
         ctx.restoreGState()
 
         ctx.saveGState()
