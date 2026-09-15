@@ -19,7 +19,7 @@ The timer has no window of its own and no icon in the Dock — it simply appears
 desktop, sitting above whatever you are working in.
 
 <p align="center">
-  <img src="docs/on-a-desktop.png" width="720" alt="Sand Timer standing in the bottom-right corner of the screen, next to a document being edited, with 14:33 left on its base">
+  <img src="docs/on-a-desktop.png" width="720" alt="A Mac screen with a document open in Chrome and Sand Timer standing in the bottom-right corner, with 9:48 left on its base">
 </p>
 
 ## Using it
