@@ -20,13 +20,13 @@ func timerViewTests() {
     suite("Pausing") {
         test("paused, it lies on its side flush on the ground, and resuming puts it back where it was") {
             let timer = TimerHarness()
-            timer.click(); timer.run(1.0)
+            timer.click(); timer.settle()
             let standing = timer.center
             expect(abs(timer.gapBelowTimer()) < 0.6, "standing on the ground: gap \(timer.gapBelowTimer())")
-            timer.menu("pauseClicked"); timer.run(1.0)
+            timer.menu("pauseClicked"); timer.settle()
             expect(abs(timer.gapBelowTimer()) < 0.6, "lying on the ground: gap \(timer.gapBelowTimer())")
             expect(abs((timer.center.y - timer.screen.minY) - 93 * timer.scale) < 1, "rests on its base discs")
-            timer.click(); timer.run(1.2)
+            timer.click(); timer.settle()
             expect(abs(timer.center.x - standing.x) < 1 && abs(timer.center.y - standing.y) < 1,
                    "back at \(standing), got \(timer.center)")
             expect(timer.isRunning)
@@ -48,15 +48,15 @@ func timerViewTests() {
         }
         test("knocked over, it falls toward the side with more room") {
             let right = TimerHarness(x: NSScreen.main!.visibleFrame.maxX - 300)
-            right.click(); right.run(1.0)
+            right.click(); right.settle()
             let before = right.center.x
-            right.menu("pauseClicked"); right.run(1.0)
+            right.menu("pauseClicked"); right.settle()
             expect(right.center.x < before - 100, "near the right wall it falls left")
 
             let left = TimerHarness(x: NSScreen.main!.visibleFrame.minX + 40)
-            left.click(); left.run(1.0)
+            left.click(); left.settle()
             let start = left.center.x
-            left.menu("pauseClicked"); left.run(1.0)
+            left.menu("pauseClicked"); left.settle()
             expect(left.center.x > start + 100, "near the left wall it falls right")
         }
     }

@@ -30,6 +30,23 @@ final class TimerHarness {
 
     func run(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
+    /// Waits for a flip, fall, tip-over or stand-up to finish, however busy the machine is: at least `minimum` seconds
+    /// (the window holds still while the glass turns), then until the window has stopped moving.
+    func settle(minimum: Double = 0.8, timeout: Double = 5) {
+        run(minimum)
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = panel.frame, stillSince = Date()
+        while Date() < deadline {
+            run(0.05)
+            if panel.frame != last {
+                last = panel.frame
+                stillSince = Date()
+            } else if Date().timeIntervalSince(stillSince) >= 0.3 {
+                return
+            }
+        }
+    }
+
     /// A plain click in the middle of the timer.
     func click() {
         let point = NSPoint(x: view.bounds.midX, y: view.bounds.midY)

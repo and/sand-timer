@@ -7,8 +7,9 @@ final class HourglassView: NSView {
     static let durations = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60]
     /// 25 minutes is the classic Pomodoro work session.
     static let pomodoroMinutes = 25
-    /// Where "Support Sand Timer" leads: the free app's GitHub Sponsors page.
-    static let supportURL = URL(string: "https://github.com/sponsors/and")!
+    /// Where "Support Sand Timer" leads: the README's support section, which offers both GitHub Sponsors and Ko-fi
+    /// (Ko-fi doesn't need a GitHub account).
+    static let supportURL = URL(string: "https://github.com/and/sand-timer#support-it")!
     static let sizes: [(name: String, scale: CGFloat)] = [("Small", 0.5), ("Medium", 0.7), ("Large", 1.0)]
     static let mediumSizeIndex = 1
     static let pad: CGFloat = 12

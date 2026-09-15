@@ -52,9 +52,14 @@ on sand as the pile grows, a rattle while you shake it, and a chime at the end.
 ## Support it
 
 Sand Timer is free and open source. If it brightens your desk and you'd like to say
-thanks, you can [sponsor it on GitHub](https://github.com/sponsors/and) or
-[buy me a coffee on Ko-fi](https://ko-fi.com/aanand). It's entirely optional, and the
-app will always be free.
+thanks, you can sponsor it on GitHub or buy me a coffee on Ko-fi. It's entirely
+optional, and the app will always be free.
+
+<p>
+  <a href="https://github.com/sponsors/and"><img src="https://img.shields.io/badge/Sponsor_on_GitHub-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub" height="36"></a>
+  &nbsp;
+  <a href="https://ko-fi.com/aanand"><img src="https://img.shields.io/badge/Support_on_Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white" alt="Support on Ko-fi" height="36"></a>
+</p>
 
 ---
 
