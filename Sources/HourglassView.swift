@@ -7,6 +7,8 @@ final class HourglassView: NSView {
     static let durations = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60]
     /// 25 minutes is the classic Pomodoro work session.
     static let pomodoroMinutes = 25
+    /// A new install starts ready for a Pomodoro session.
+    static let defaultMinutes = pomodoroMinutes
     /// Where "Support Sand Timer" leads: the README's support section, which offers both GitHub Sponsors and Ko-fi
     /// (Ko-fi doesn't need a GitHub account).
     static let supportURL = URL(string: "https://github.com/and/sand-timer#support-it")!
@@ -70,7 +72,7 @@ final class HourglassView: NSView {
     var previewAgitation: Double?
 
     init(minutes: Int, themeIndex: Int, baseIndex: Int = 0, sizeIndex: Int) {
-        self.minutes = Self.durations.contains(minutes) ? minutes : 30
+        self.minutes = Self.durations.contains(minutes) ? minutes : Self.defaultMinutes
         self.themeIndex = Theme.colors.indices.contains(themeIndex) ? themeIndex : 0
         base = Theme.Base(rawValue: baseIndex) ?? .black
         self.sizeIndex = Self.sizes.indices.contains(sizeIndex) ? sizeIndex : 1

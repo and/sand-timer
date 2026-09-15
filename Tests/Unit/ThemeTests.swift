@@ -20,6 +20,13 @@ func themeTests() {
                 expect(ratio >= 3, String(format: "%@: contrast %.1f", theme.name, ratio))
             }
         }
+        test("a new timer is set up for a 25-minute Pomodoro") {
+            expect(HourglassView.defaultMinutes == 25 && HourglassView.durations.contains(HourglassView.defaultMinutes))
+            // A duration that isn't on the menu (like a corrupted saved setting) falls back to the default.
+            let view = HourglassView(minutes: 7, themeIndex: 0, sizeIndex: 1)
+            view.setPreview(progress: 0, running: true)
+            expect(view.menuBarTime == "25:00", "got \(view.menuBarTime ?? "nil")")
+        }
         test("an out-of-range color falls back to the first one") {
             expect(Theme(color: 99, base: .black).name == Theme(color: 0, base: .black).name)
         }

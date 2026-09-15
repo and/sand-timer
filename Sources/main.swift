@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let defaults = UserDefaults.standard
         let view = HourglassView(
-            minutes: defaults.object(forKey: "minutes") as? Int ?? 30,
+            minutes: defaults.object(forKey: "minutes") as? Int ?? HourglassView.defaultMinutes,
             themeIndex: defaults.integer(forKey: "theme"),
             baseIndex: defaults.integer(forKey: "base"),
             sizeIndex: HourglassView.mediumSizeIndex  // always starts at Medium; the Size menu changes it for this session
@@ -131,7 +131,7 @@ func renderSnapshot(_ args: [String]) throws {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
         return args[i + 1]
     }
-    let view = HourglassView(minutes: Int(value("--minutes") ?? "") ?? 30,
+    let view = HourglassView(minutes: Int(value("--minutes") ?? "") ?? HourglassView.defaultMinutes,
                              themeIndex: Int(value("--theme") ?? "") ?? 0, baseIndex: Int(value("--base") ?? "") ?? 0, sizeIndex: 2)
     view.setPreview(progress: Double(value("--progress") ?? "") ?? 0.35, running: !args.contains("--stopped"))
     view.previewAngle = value("--angle").flatMap(Double.init)
