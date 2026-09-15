@@ -36,6 +36,8 @@ final class HourglassView: NSView {
     private var sizeIndex: Int
     private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
     private var grainSoundOn = UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true
+    /// "Float Anywhere": the timer stays wherever it's let go instead of falling to the bottom of the screen.
+    private(set) var floats = UserDefaults.standard.bool(forKey: "float")
     private var flip: (start: Date, from: SandClock)?
     /// Tipping onto its side to pause, or standing back up. `groundY` is the screen y the timer pivots on.
     private var tip: (from: Double, to: Double, start: Date, pivot: CGPoint, side: Double, then: () -> Void)?
@@ -135,13 +137,12 @@ final class HourglassView: NSView {
         }
 
         if let tip {
-            let angle = tipAngle(at: now)
-            let offset = SandPhysics.centerFromPivot(angle: angle, side: tip.side)
-            let scale = Self.sizes[sizeIndex].scale
-            moveTimer(to: CGPoint(x: tip.pivot.x + CGFloat(offset.x) * scale, y: tip.pivot.y + CGFloat(offset.y) * scale), angle: angle)
             if now.timeIntervalSince(tip.start) >= tipDuration(tip) {
+                // Now that it's still, move the window to where the timer came to rest and draw it centered again.
+                let rest = tipCenter(tip, angle: tip.to)
                 self.tip = nil
                 lyingAngle = tip.to
+                placeWindow(around: rest, expanded: tip.to != 0)
                 settleSand(at: now)
                 if tip.to != 0 {
                     // Landing on its side jolts the sand: the far end hits at the angular speed of the fall.
@@ -219,7 +220,7 @@ final class HourglassView: NSView {
 
         let moving = flip != nil || tip != nil || !streamLean.isSettled || !agitation.isSettled
         let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
-        setExpanded(flip != nil || tip != nil || lyingAngle != 0)
+        if tip == nil { setExpanded(flip != nil || lyingAngle != 0) }
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
         let settling = displaySwitchingOn
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
@@ -280,8 +281,15 @@ final class HourglassView: NSView {
         }
 
         let scale = Self.sizes[sizeIndex].scale
+        // While tipping over or standing up the window holds still and the timer moves within it, so its position and
+        // rotation always change together in the same frame.
+        var shift = CGPoint.zero
+        if let tip, let window {
+            let center = tipCenter(tip, angle: angle)
+            shift = CGPoint(x: center.x - window.frame.midX, y: center.y - window.frame.midY)
+        }
         func placeTimer(rotated: Bool) {
-            ctx.translateBy(x: bounds.midX, y: bounds.midY)
+            ctx.translateBy(x: bounds.midX + shift.x, y: bounds.midY - shift.y)
             if rotated { ctx.rotate(by: CGFloat(angle)) }
             ctx.scaleBy(x: scale, y: scale)
             ctx.translateBy(x: -100, y: -200)
@@ -406,7 +414,17 @@ final class HourglassView: NSView {
         let offset = SandPhysics.centerFromPivot(angle: lyingAngle, side: side)
         let scale = Self.sizes[sizeIndex].scale
         let pivot = CGPoint(x: window.frame.midX - CGFloat(offset.x) * scale, y: window.frame.midY - CGFloat(offset.y) * scale)
-        tip = (lyingAngle, angle, Date(), pivot, side, then)
+        let start = CGPoint(x: window.frame.midX, y: window.frame.midY)
+        let newTip = (from: lyingAngle, to: angle, start: Date(), pivot: pivot, side: side, then: then)
+        tip = newTip
+        // One still window big enough for the timer at any angle anywhere along its path.
+        let end = tipCenter(newTip, angle: angle)
+        let content = Self.contentSize(sizeIndex: sizeIndex)
+        let reach = ceil(hypot(content.width, content.height) / 2) + 2
+        expansion = nil
+        window.setFrame(NSRect(x: floor(min(start.x, end.x) - reach), y: floor(min(start.y, end.y) - reach),
+                               width: ceil(abs(end.x - start.x) + 2 * reach), height: ceil(abs(end.y - start.y) + 2 * reach)),
+                        display: false)
         if angle == 0, soundOn, let sound = Sounds.standUp(standUpDuration: Self.standUpDuration) {
             sound.stop()
             sound.play()
@@ -466,6 +484,9 @@ final class HourglassView: NSView {
         let login = item("Start at Login", #selector(loginToggled))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
+        let float = item("Float Anywhere", #selector(floatToggled))
+        float.state = floats ? .on : .off
+        menu.addItem(float)
         menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))
         menu.addItem(.separator())
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
@@ -571,6 +592,12 @@ final class HourglassView: NSView {
     }
 
     @objc private func hideClicked() { onHide?() }
+
+    @objc private func floatToggled() {
+        floats.toggle()
+        UserDefaults.standard.set(floats, forKey: "float")
+        letGo()  // floating: stay put; not floating any more: fall to the bottom of the screen
+    }
     @objc private func supportClicked() { NSWorkspace.shared.open(Self.supportURL) }
 
     @objc private func loginToggled() {
@@ -638,22 +665,50 @@ final class HourglassView: NSView {
 
     private var screenBox: CGRect? { (window?.screen ?? NSScreen.main)?.visibleFrame }
 
+    /// Where the timer's center is at `angle` along a tip: swung about its pivot corner, kept inside the screen.
+    private func tipCenter(_ tip: (from: Double, to: Double, start: Date, pivot: CGPoint, side: Double, then: () -> Void),
+                           angle: Double) -> CGPoint {
+        let offset = SandPhysics.centerFromPivot(angle: angle, side: tip.side)
+        let scale = Self.sizes[sizeIndex].scale
+        return keptCenter(CGPoint(x: tip.pivot.x + CGFloat(offset.x) * scale, y: tip.pivot.y + CGFloat(offset.y) * scale), angle: angle)
+    }
+
+    /// Sets the window around `center`: the timer's own size, or grown so a turned or lying timer isn't clipped.
+    private func placeWindow(around center: CGPoint, expanded: Bool) {
+        guard let window else { return }
+        let content = Self.contentSize(sizeIndex: sizeIndex)
+        var frame = NSRect(x: (center.x - content.width / 2).rounded(), y: (center.y - content.height / 2).rounded(),
+                           width: content.width, height: content.height)
+        expansion = nil
+        if expanded {
+            let diagonal = hypot(content.width, content.height)
+            let margin = (dx: ceil((diagonal - content.width) / 2), dy: ceil((diagonal - content.height) / 2))
+            frame = frame.insetBy(dx: -margin.dx, dy: -margin.dy)
+            expansion = margin
+        }
+        window.setFrame(frame, display: true)
+        needsDisplay = true
+    }
+
+    /// The nearest center that keeps the timer's outline, tilted `angle` radians, inside the screen.
+    private func keptCenter(_ target: CGPoint, angle: Double, box: CGRect? = nil) -> CGPoint {
+        guard let box = box ?? screenBox else { return target }
+        let scale = Double(Self.sizes[sizeIndex].scale)
+        let kept = SandPhysics.keptInside(
+            x: Double(target.x), y: Double(target.y),
+            halfWidth: SandPhysics.restingHalfWidth(angle: angle) * scale,
+            halfHeight: SandPhysics.restingHalfHeight(angle: angle) * scale,
+            box: (Double(box.minX), Double(box.maxX), Double(box.minY), Double(box.maxY)))
+        return CGPoint(x: kept.x, y: kept.y)
+    }
+
     /// Moves the timer's center toward `target`, keeping its outline (tilted `angle` radians) inside the screen
     /// as if the screen were a box. Works on the window's center, which stays put when the window grows for turning.
     /// Returns where the center ended up.
     @discardableResult
     private func moveTimer(to target: CGPoint, angle: Double, box: CGRect? = nil) -> CGPoint {
         guard let window else { return target }
-        var center = target
-        if let box = box ?? screenBox {
-            let scale = Double(Self.sizes[sizeIndex].scale)
-            let kept = SandPhysics.keptInside(
-                x: Double(target.x), y: Double(target.y),
-                halfWidth: SandPhysics.restingHalfWidth(angle: angle) * scale,
-                halfHeight: SandPhysics.restingHalfHeight(angle: angle) * scale,
-                box: (Double(box.minX), Double(box.maxX), Double(box.minY), Double(box.maxY)))
-            center = CGPoint(x: kept.x, y: kept.y)
-        }
+        let center = keptCenter(target, angle: angle, box: box)
         window.setFrameOrigin(CGPoint(x: (center.x - window.frame.width / 2).rounded(), y: (center.y - window.frame.height / 2).rounded()))
         return center
     }
@@ -661,6 +716,13 @@ final class HourglassView: NSView {
     /// Let go after a drag: fall to the bottom of the screen.
     @objc private func letGo() {
         guard let window, let floor = floorCenterY else { return }
+        if floats {
+            // Floating: it stays where it was let go, just kept inside the screen.
+            drop = nil
+            moveTimer(to: CGPoint(x: window.frame.midX, y: window.frame.midY), angle: lyingAngle)
+            saveWindowOrigin()
+            return
+        }
         let falling = Drop(y: Double(window.frame.midY), floor: Double(floor))
         if falling.isResting {
             moveTimer(to: CGPoint(x: window.frame.midX, y: floor), angle: lyingAngle)
@@ -670,10 +732,15 @@ final class HourglassView: NSView {
         }
     }
 
-    /// Places the timer resting on the bottom of its screen right away.
+    /// Places the timer resting on the bottom of its screen right away, or, when floating, keeps it where it is.
     func restOnFloor() {
         guard let window, let floor = floorCenterY else { return }
         drop = nil
+        if floats {
+            moveTimer(to: CGPoint(x: window.frame.midX, y: window.frame.midY), angle: lyingAngle)
+            saveWindowOrigin()
+            return
+        }
         moveTimer(to: CGPoint(x: window.frame.midX, y: floor), angle: lyingAngle)
         saveWindowOrigin()
     }

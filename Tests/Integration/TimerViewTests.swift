@@ -89,6 +89,26 @@ func timerViewTests() {
         }
     }
 
+    suite("Floating") {
+        test("with Float Anywhere on it stays where it's let go; turning it off drops it to the ground") {
+            UserDefaults.standard.set(false, forKey: "float")
+            let timer = TimerHarness()
+            timer.menu("floatToggled")
+            expect(timer.view.floats, "the option turns on")
+            let midAir = timer.screen.midY
+            timer.panel.setFrameOrigin(CGPoint(x: timer.panel.frame.minX, y: midAir - timer.panel.frame.height / 2))
+            timer.view.perform(NSSelectorFromString("letGo"))
+            timer.settle(minimum: 0.6)
+            expect(abs(timer.center.y - midAir) < 1, "stays in mid-air: \(timer.center.y) vs \(midAir)")
+            timer.click(); timer.settle()
+            expect(abs(timer.center.y - midAir) < 1 && timer.isRunning, "flipping in mid-air doesn't make it fall")
+            timer.menu("floatToggled")
+            timer.settle(minimum: 0.6)
+            expect(!timer.view.floats && abs(timer.center.y - timer.screen.minY - 200 * timer.scale) < 1, "falls to the ground when turned off")
+            UserDefaults.standard.set(false, forKey: "float")
+        }
+    }
+
     suite("Flipping") {
         test("flipping mid-run swaps what's left, and the window returns to its size afterwards") {
             let timer = TimerHarness()

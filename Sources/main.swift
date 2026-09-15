@@ -117,7 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func initialOrigin(for size: NSSize) -> CGPoint {
         if let saved = UserDefaults.standard.array(forKey: "origin") as? [CGFloat], saved.count == 2,
            let screen = NSScreen.screens.first(where: { $0.visibleFrame.minX <= saved[0] && saved[0] + size.width <= $0.visibleFrame.maxX }) {
-            return CGPoint(x: saved[0], y: screen.visibleFrame.minY)
+            // A floating timer reopens exactly where it was left; otherwise it starts on the ground below that spot.
+            let floats = UserDefaults.standard.bool(forKey: "float")
+            return CGPoint(x: saved[0], y: floats ? saved[1] : screen.visibleFrame.minY)
         }
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         return CGPoint(x: visible.maxX - size.width - 40, y: visible.minY)
