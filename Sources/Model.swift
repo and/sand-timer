@@ -20,7 +20,14 @@ struct SandClock {
 
     func progress(at now: Date) -> Double {
         guard let since = runningSince else { return storedProgress }
-        return min(1, storedProgress + now.timeIntervalSince(since) / duration)
+        return min(1, storedProgress + max(0, now.timeIntervalSince(since)) / duration)
+    }
+
+    /// Lets extra sand through (positive) or holds sand back (negative), `seconds` worth at the normal rate, for when
+    /// the sand feels stronger or weaker gravity than usual. Only while sand is flowing.
+    mutating func shiftFlow(by seconds: Double) {
+        guard let since = runningSince else { return }
+        runningSince = since.addingTimeInterval(-seconds)
     }
 
     func isRunning(at now: Date) -> Bool { runningSince != nil && progress(at: now) < 1 }

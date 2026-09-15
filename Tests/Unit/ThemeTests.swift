@@ -34,6 +34,12 @@ func themeTests() {
             view.setPreview(progress: 0, running: true)
             expect(view.menuBarTime == "12:00", "a saved 12-minute setting is kept, got \(view.menuBarTime ?? "nil")")
         }
+        test("redraws smoothly while moving and less often while sand just pours") {
+            expect(near(HourglassView.redrawInterval(inMotion: true, lowPowerMode: false), 1.0 / 60))
+            expect(near(HourglassView.redrawInterval(inMotion: true, lowPowerMode: true), 1.0 / 60), "motion stays smooth even in Low Power Mode")
+            expect(near(HourglassView.redrawInterval(inMotion: false, lowPowerMode: false), 1.0 / 30))
+            expect(near(HourglassView.redrawInterval(inMotion: false, lowPowerMode: true), 1.0 / 20))
+        }
         test("an out-of-range color falls back to the first one") {
             expect(Theme(color: 99, base: .black).name == Theme(color: 0, base: .black).name)
         }

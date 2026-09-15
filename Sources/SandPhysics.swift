@@ -53,6 +53,14 @@ enum SandPhysics {
     /// Distance (drawing units) below the neck over which the sand in the opening converges into the stream.
     static func funnelLength(neckScale: Double) -> Double { 2 + 1.5 * neckScale }
 
+    /// How fast sand pours, relative to normal, when it feels `gravityFactor` times normal gravity. Flow through an
+    /// opening goes with the square root of gravity, so it quickens when the timer is lifted sharply, slows when it's
+    /// lowered, and stops altogether in free fall.
+    static func flowRate(gravityFactor: Double) -> Double { max(0, gravityFactor).squareRoot() }
+
+    /// Below this share of normal gravity no grains leave the neck, so the stream lets go and falls away.
+    static let freeFallThreshold = 0.05
+
     static func fallDistance(after seconds: Double) -> Double {
         seconds <= 0 ? 0 : 0.5 * gravity * seconds * seconds
     }
@@ -103,6 +111,14 @@ enum SandPhysics {
 
         func height(atRadius rho: Double) -> Double { layer + max(0, peak - reposeSlope * rho) }
 
+        /// The surface as it really looks at a horizontal `offset` from the center: a slightly rounded peak, a foot that
+        /// curves into the layer instead of meeting it at a corner, and faint unevenness. Nearly the same sand as `height`.
+        func naturalHeight(atOffset offset: Double, rough: Bool = true) -> Double {
+            let cone = NaturalSurface.roundedCone(peak: peak, slope: reposeSlope, radius: abs(offset), tipRadius: 5)
+            let heap = NaturalSurface.smoothMax(0, cone, width: 3)
+            return layer + heap + (rough ? 0.7 * NaturalSurface.roughness(at: offset) : 0)
+        }
+
         /// How far out the cone reaches before it meets the layer or the wall.
         var foot: Double { min(G.innerRadius(G.halfLength - layer), peak / reposeSlope) }
     }
@@ -134,8 +150,40 @@ enum SandPhysics {
 
         func height(atRadius rho: Double) -> Double { max(0, min(level, tip + reposeSlope * rho)) }
 
+        /// The surface as it really looks: a crater with a rounded bottom and a rim that curves into the flat sand
+        /// around it, with faint unevenness. Nearly the same sand as `height`.
+        func naturalHeight(atOffset offset: Double, rough: Bool = true) -> Double {
+            let funnel = tip + reposeSlope * ((offset * offset + 16).squareRoot() - 4)
+            let surface = NaturalSurface.smoothMin(level, funnel, width: 4)
+            return NaturalSurface.smoothMax(0, surface, width: 1.5) + (rough ? 0.5 * NaturalSurface.roughness(at: offset + 17) : 0)
+        }
+
         /// Where the crater meets the flat surface.
         var rim: Double { max(0, min(G.bulbRadius, (level - tip) / reposeSlope)) }
+    }
+
+    /// Helpers that turn the ideal heap shapes into how sand actually looks, without meaningfully changing how much there is.
+    enum NaturalSurface {
+        /// Larger of `a` and `b`, with the corner between them rounded over `width`.
+        static func smoothMax(_ a: Double, _ b: Double, width: Double) -> Double {
+            let h = max(width - abs(a - b), 0) / width
+            return max(a, b) + h * h * width / 4
+        }
+
+        /// Smaller of `a` and `b`, with the corner between them rounded over `width`.
+        static func smoothMin(_ a: Double, _ b: Double, width: Double) -> Double {
+            -smoothMax(-a, -b, width: width)
+        }
+
+        /// A cone at `slope` whose tip is rounded off within about `tipRadius` of the center.
+        static func roundedCone(peak: Double, slope: Double, radius: Double, tipRadius: Double) -> Double {
+            peak - slope * ((radius * radius + tipRadius * tipRadius).squareRoot() - tipRadius)
+        }
+
+        /// Faint, fixed unevenness across a surface (about ±1 unit), deliberately lopsided so heaps aren't mirror-perfect.
+        static func roughness(at offset: Double) -> Double {
+            0.45 * sin(offset * 0.83 + 1.3) + 0.3 * sin(offset * 2.1 + 0.4) + 0.2 * sin(offset * 4.7 + 2.2)
+        }
     }
 
     static func topCrater(progress: Double, settledProgress: Double) -> TopCrater {

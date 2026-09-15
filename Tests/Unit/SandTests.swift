@@ -121,6 +121,25 @@ func sandTests() {
                 expect(relNear(volume, geo.sandVolume * progress, 0.01), "at \(progress) settled \(settled): \(volume) vs \(geo.sandVolume * progress)")
             }
         }
+        test("heaps look natural: rounded peaks and feet, no hard corners, nearly the same sand") {
+            let N = P.NaturalSurface.self
+            expect(N.smoothMax(0, 5, width: 3) == 5 && N.smoothMax(2, 2, width: 4) > 2, "rounds only near the corner")
+            expect(N.roundedCone(peak: 20, slope: 0.5, radius: 0, tipRadius: 5) == 20, "the tip keeps its height")
+            expect(abs(N.roundedCone(peak: 20, slope: 0.5, radius: 30, tipRadius: 5) - (20 - 0.5 * 30)) < 0.5 * 5, "matches the cone away from the tip")
+            let pile = P.bottomPile(progress: 0.55, settledProgress: 0.5)
+            // Curvature: a hard corner shows up as a jump in slope between neighbouring points.
+            var sharpest = 0.0, farthest = 0.0
+            for x in stride(from: -50.0, through: 50.0, by: 0.5) {
+                let bend = pile.naturalHeight(atOffset: x + 0.5, rough: false) - 2 * pile.naturalHeight(atOffset: x, rough: false) + pile.naturalHeight(atOffset: x - 0.5, rough: false)
+                sharpest = max(sharpest, abs(bend))
+                farthest = max(farthest, abs(pile.naturalHeight(atOffset: x) - pile.height(atRadius: abs(x))))
+            }
+            let corner = abs(pile.height(atRadius: pile.foot + 0.5) - 2 * pile.height(atRadius: pile.foot) + pile.height(atRadius: pile.foot - 0.5))
+            expect(sharpest < corner * 0.5, "smoother than the ideal cone's corners: \(sharpest) vs \(corner)")
+            expect(farthest < 3, "never more than a few units from the ideal shape: \(farthest)")
+            let crater = P.topCrater(progress: 0.3, settledProgress: 0)
+            expect(abs(crater.naturalHeight(atOffset: 0, rough: false) - max(0, crater.tip)) < 2.5, "the crater's bottom is rounded, not moved")
+        }
         test("the top's crater starts fresh from wherever the sand last settled") {
             let fresh = P.topCrater(progress: 0.4, settledProgress: 0.4)
             expect(relNear(fresh.tip, fresh.level, 1e-3), "no crater right after settling")
@@ -143,6 +162,12 @@ func sandTests() {
             expect(P.funnelLength(neckScale: 2.6) > P.funnelLength(neckScale: 1), "a wider opening converges over a longer distance")
             expect(bottom.coreWidth >= 0.85 && bottom.coreOpacity >= 0.8 && bottom.spread <= 0.3,
                    "no visible spray: dry sand falls as a thin, even thread")
+        }
+        test("sand pours with the square root of the gravity it feels, and not at all in free fall") {
+            expect(P.flowRate(gravityFactor: 1) == 1)
+            expect(P.flowRate(gravityFactor: 0) == 0 && P.flowRate(gravityFactor: -1) == 0)
+            expect(near(P.flowRate(gravityFactor: 4), 2), "four times the gravity, twice the flow")
+            expect(P.flowRate(gravityFactor: 0.5) < 1 && P.flowRate(gravityFactor: 1.5) > 1)
         }
         test("the stream falls under gravity") {
             expect(relNear(P.fallDistance(after: 0.25), 150))

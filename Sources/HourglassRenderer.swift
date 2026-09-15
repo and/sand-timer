@@ -329,7 +329,7 @@ final class HourglassRenderer {
         let amount = frame.shapeAmount, neckY = self.neckY
         return Surface(
             y: { offset in
-                let height = crater.height(atRadius: Double(abs(offset)))
+                let height = crater.naturalHeight(atOffset: Double(offset))
                 return neckY - CGFloat(flat + (height - flat) * amount)
             },
             slideFrom: CGFloat(crater.rim), slideTo: CGFloat(max(0, -crater.tip / P.reposeSlope)), halfWidth: CGFloat(G.innerRadius(flat)))
@@ -345,7 +345,7 @@ final class HourglassRenderer {
         let wall = G.innerRadius(G.halfLength - flat)
         return Surface(
             y: { offset in
-                let height = pile.height(atRadius: Double(abs(offset)))
+                let height = pile.naturalHeight(atOffset: Double(offset))
                 return bottomY - CGFloat(flat + (height - flat) * amount)
             },
             slideFrom: 0, slideTo: CGFloat(pile.foot),

@@ -50,6 +50,24 @@ func clockTests() {
             expect(near(clock.progress(at: at(50)), 0.5))
             expect(near(clock.progress(at: at(150)), 1))
         }
+        test("stronger or weaker gravity lets more or less sand through") {
+            var clock = SandClock(duration: 100)
+            clock.restart(at: t0)
+            clock.shiftFlow(by: -5)  // five seconds of free fall: no sand moved
+            expect(near(clock.progress(at: at(10)), 0.05), "only 5 of the 10 seconds poured")
+            expect(clock.finishTime == at(105), "so it finishes 5 seconds later")
+            clock.shiftFlow(by: 2)
+            expect(near(clock.progress(at: at(10)), 0.07))
+            var paused = SandClock(duration: 100)
+            paused.restart(at: t0)
+            paused.pause(at: at(20))
+            paused.shiftFlow(by: -10)
+            expect(near(paused.progress(at: at(30)), 0.2), "no effect while paused")
+            var justStarted = SandClock(duration: 100)
+            justStarted.restart(at: t0)
+            justStarted.shiftFlow(by: -1)
+            expect(justStarted.progress(at: t0) == 0, "sand never flows back up")
+        }
         test("finish time follows flips, pauses and restarts") {
             var clock = SandClock(duration: 100)
             clock.restart(at: t0)

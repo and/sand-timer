@@ -51,6 +51,10 @@ final class HourglassView: NSView {
     private var agitation = Agitation()
     /// When sand started through the neck; the stream's front falls from here.
     private var releasedAt: Date?
+    /// Gravity the sand feels, as a share of normal: 0 in free fall, above 1 while the timer is jerked upward.
+    private var feltGravity = 1.0
+    /// When grains stopped leaving the neck because the timer went into free fall; the stream falls away from here.
+    private var flowInterruptedAt: Date?
     private var wasRunning = false
     private var wasAnimating = false
     private var drag: (mouse: CGPoint, center: CGPoint, box: CGRect?)?
@@ -64,6 +68,7 @@ final class HourglassView: NSView {
     /// Extra margin while the window is grown so a turning glass isn't clipped.
     private var expansion: (dx: CGFloat, dy: CGFloat)?
     private var lastTick = CACurrentMediaTime()
+    private var lastRedraw = 0.0
     private var timer: Timer?
     /// Called when the user asks to hide the timer in the menu bar.
     var onHide: (() -> Void)?
@@ -85,6 +90,12 @@ final class HourglassView: NSView {
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Seconds between redraws. Anything moving (a flip, a fall, a drag, a shake) gets a smooth 60 fps; sand simply
+    /// pouring changes so slowly that 30 fps looks the same and costs about half as much, and 20 in Low Power Mode.
+    static func redrawInterval(inMotion: Bool, lowPowerMode: Bool) -> Double {
+        inMotion ? 1.0 / 60 : (lowPowerMode ? 1.0 / 20 : 1.0 / 30)
+    }
 
     func startTicking() {
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.tick() }
@@ -157,6 +168,21 @@ final class HourglassView: NSView {
         streamLean.step(acceleration: accelerationX, timerHeightPoints: timerHeight, dt: dt)
         agitation.step(dt: dt)
         agitation.shake(acceleration: Double(hypot(change.dx, change.dy)) / dt * metersPerPoint)
+        // What the sand feels: normal gravity plus the timer's upward acceleration, or none at all while it falls
+        // freely. Sand pours faster or slower with it, and stops in free fall.
+        let upwardAcceleration = Double(change.dy) / dt * metersPerPoint
+        let gravityTarget = drop != nil ? 0 : max(0, 1 + upwardAcceleration / SandPhysics.earthGravity)
+        feltGravity += (gravityTarget - feltGravity) * min(1, dt / 0.05)
+        if flip == nil, tip == nil, clock.isRunning(at: now) {
+            clock.shiftFlow(by: (SandPhysics.flowRate(gravityFactor: feltGravity) - 1) * dt)
+        }
+        if feltGravity < SandPhysics.freeFallThreshold {
+            if flowInterruptedAt == nil, streamExtent(at: now) != nil { flowInterruptedAt = now }
+        } else if flowInterruptedAt != nil {
+            flowInterruptedAt = nil
+            releasedAt = now  // gravity is back: grains start leaving the neck again
+        }
+
         if var falling = drop {
             falling.step(dt: dt)
             moveTimer(to: CGPoint(x: window?.frame.midX ?? 0, y: CGFloat(falling.y)), angle: lyingAngle)
@@ -192,19 +218,27 @@ final class HourglassView: NSView {
         Sounds.setPour(active: pouring, glassiness: pouring ? SandPhysics.pourGlassiness(progress: clock.progress(at: now)) : 0)
 
         let moving = flip != nil || tip != nil || !streamLean.isSettled || !agitation.isSettled
+        let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
         setExpanded(flip != nil || tip != nil || lyingAngle != 0)
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
         let settling = displaySwitchingOn
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
         let animating = running || moving || settling || trailing
-        if visible && (animating || wasAnimating) { needsDisplay = true }
+        let interval = Self.redrawInterval(inMotion: inMotion || settling,
+                                            lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        if visible && (animating || wasAnimating) && media - lastRedraw >= interval - 0.002 {
+            needsDisplay = true
+            lastRedraw = media
+        }
         wasAnimating = animating
     }
 
     /// The falling stream as (tail, front) distances below the neck, or nil when nothing is falling.
     private func streamExtent(at now: Date) -> (tail: Double, front: Double)? {
         guard flip == nil, clock.runningSince != nil, let releasedAt, now > releasedAt else { return nil }
-        let tail = clock.finishTime.map { SandPhysics.fallDistance(after: now.timeIntervalSince($0)) } ?? 0
+        // The stream lets go of the neck when the top runs dry, or when the timer goes into free fall.
+        let lettingGo = [clock.finishTime, flowInterruptedAt].compactMap { $0 }.min()
+        let tail = lettingGo.map { SandPhysics.fallDistance(after: now.timeIntervalSince($0)) } ?? 0
         guard tail < 400 else { return nil }
         return (tail, SandPhysics.fallDistance(after: now.timeIntervalSince(releasedAt)))
     }
@@ -625,7 +659,7 @@ final class HourglassView: NSView {
     }
 
     /// Let go after a drag: fall to the bottom of the screen.
-    private func letGo() {
+    @objc private func letGo() {
         guard let window, let floor = floorCenterY else { return }
         let falling = Drop(y: Double(window.frame.midY), floor: Double(floor))
         if falling.isResting {

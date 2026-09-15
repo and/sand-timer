@@ -39,7 +39,7 @@ func timerViewTests() {
             // Measured beside the stream (which would read as sand in the center column) and right by the wall.
             let wallAfterStandingUp = try require(timer.bottomSandHeight(atOffset: 50), "sand by the wall after standing up")
             let innerAfterStandingUp = try require(timer.bottomSandHeight(atOffset: 12), "sand near the middle after standing up")
-            expect(abs(innerAfterStandingUp - wallAfterStandingUp) < 2, "the layer starts level: \(innerAfterStandingUp) vs \(wallAfterStandingUp)")
+            expect(abs(innerAfterStandingUp - wallAfterStandingUp) < 3, "the layer starts level: \(innerAfterStandingUp) vs \(wallAfterStandingUp)")
             timer.run(3.0)  // new sand lands on it
             let wall = try require(timer.bottomSandHeight(atOffset: 50), "sand by the wall later")
             let inner = try require(timer.bottomSandHeight(atOffset: 12), "sand near the middle later")
@@ -58,6 +58,34 @@ func timerViewTests() {
             let start = left.center.x
             left.menu("pauseClicked"); left.settle()
             expect(left.center.x > start + 100, "near the left wall it falls right")
+        }
+    }
+
+    suite("Gravity") {
+        test("dropped, the stream lets go of the neck while it falls, then pours again after landing") {
+            let timer = TimerHarness(minutes: 25, color: 0)
+            timer.click(); timer.settle(); timer.run(1.0)
+            func sandJustBelowNeck() -> Bool {
+                let rep = timer.render()
+                let pixelsPerUnit = CGFloat(rep.pixelsHigh) / timer.view.bounds.height * timer.scale
+                let column = rep.pixelsWide / 2
+                let neckRow = Int(timer.view.bounds.midY / timer.view.bounds.height * CGFloat(rep.pixelsHigh))
+                return (neckRow + Int(12 * pixelsPerUnit)..<neckRow + Int(30 * pixelsPerUnit)).contains { row in
+                    guard let c = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB), c.alphaComponent > 0.3 else { return false }
+                    return c.blueComponent > c.redComponent * 1.3 && c.blueComponent > c.greenComponent * 1.8
+                }
+            }
+            expect(sandJustBelowNeck(), "sand is pouring before the drop")
+            let before = timer.view.menuBarTime
+            // Lift it to the top of the screen and let go.
+            timer.panel.setFrameOrigin(CGPoint(x: timer.panel.frame.minX, y: timer.screen.maxY - timer.panel.frame.height))
+            timer.view.perform(NSSelectorFromString("letGo"))
+            timer.run(0.35)
+            expect(!sandJustBelowNeck(), "mid-fall, no stream leaves the neck")
+            timer.settle(minimum: 0.5)
+            timer.run(0.8)
+            expect(sandJustBelowNeck(), "after landing it pours again")
+            expect(timer.isRunning && timer.view.menuBarTime != nil && before != nil)
         }
     }
 
