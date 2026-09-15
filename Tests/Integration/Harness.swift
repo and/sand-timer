@@ -17,6 +17,8 @@ final class TimerHarness {
         let screen = NSScreen.main?.visibleFrame ?? .zero
         panel.setFrameOrigin(CGPoint(x: x ?? screen.midX - view.frame.width / 2, y: screen.midY))
         view.restOnFloor()
+        // The view reads the hand from here, so tests move a finger instead of the real pointer.
+        view.handLocation = { [unowned self] in self.fingerOnScreen ?? NSEvent.mouseLocation }
         panel.orderFrontRegardless()
         view.startTicking()
     }
@@ -82,13 +84,18 @@ final class TimerHarness {
 
     /// Pushes the pressed top cap sideways by `points`, a little at a time.
     func pushTopCap(by points: CGFloat, steps: Int = 12) {
+        moveTopCap(by: CGVector(dx: points, dy: 0), steps: steps)
+    }
+
+    /// Moves the finger pressing the top cap by `offset` screen points (y up), in `steps` even moves a frame apart.
+    func moveTopCap(by offset: CGVector, steps: Int = 12) {
         guard let start = fingerOnScreen else { return }
         for i in 1...steps {
-            let screen = CGPoint(x: start.x + points * CGFloat(i) / CGFloat(steps), y: start.y)
-            sendMouse(.leftMouseDragged, at: panel.convertPoint(fromScreen: screen))
+            let fraction = CGFloat(i) / CGFloat(steps)
+            fingerOnScreen = CGPoint(x: start.x + offset.dx * fraction, y: start.y + offset.dy * fraction)
+            sendMouse(.leftMouseDragged, at: panel.convertPoint(fromScreen: fingerOnScreen!))
             run(1.0 / 60)
         }
-        fingerOnScreen = CGPoint(x: start.x + points, y: start.y)
     }
 
     func releaseTopCap() {

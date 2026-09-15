@@ -53,7 +53,7 @@ final class HourglassView: NSView {
     private var liftGrab: (handAngle: Double, startAngle: Double)?
     private var lean: Lean?
     /// Screen x where the top cap was grabbed, while the hand holds it.
-    private var topGrab: (x: CGFloat, upright: CGPoint)?
+    private var topGrab: (hand: CGPoint, upright: CGPoint)?
     private var rocking: Rocking?
     /// How each heap has slumped from being tilted (per-column height changes), kept until the sand is next leveled.
     private var topSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
@@ -83,6 +83,8 @@ final class HourglassView: NSView {
     /// When the display at the new base switches on after a flip lands.
     private var displayOnAt: Date?
     private static let displayFade = 0.3
+    /// How far the hand moves on the top cap before its direction decides between tilting and picking up, in points.
+    private static let gestureThreshold: CGFloat = 6
     /// Progress when each bulb's sand last settled flat: after a flip lands, when it's stood back up, and gradually while
     /// it's shaken. The top's crater and the bottom's new cone build from there, so a flattened heap stays flat.
     private var topSettledProgress = 0.0
@@ -97,6 +99,8 @@ final class HourglassView: NSView {
     private var wasRunning = false
     private var wasAnimating = false
     private var drag: (mouse: CGPoint, center: CGPoint, box: CGRect?)?
+    /// Where the pointer is on screen. Tests stand in for the hand here.
+    var handLocation: () -> CGPoint = { NSEvent.mouseLocation }
     private var dragged = false
     private var lastDragSample: (time: TimeInterval, point: CGPoint)?
     private var dragVelocity = CGVector.zero
@@ -395,9 +399,10 @@ final class HourglassView: NSView {
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) { return rightMouseDown(with: event) }
         guard let window, flip == nil, tip == nil else { return }
-        // Pressing on the top cap of a standing timer: push sideways to tilt it, like a finger on a real one.
+        // Pressing on the top cap of a standing timer: push sideways to tilt it, like a finger on a real one,
+        // or pull up to pick it up.
         if canTiltByHand, isOnTopCap(convert(event.locationInWindow, from: nil)) {
-            topGrab = (window.convertPoint(toScreen: event.locationInWindow).x, CGPoint(x: window.frame.midX, y: window.frame.midY))
+            topGrab = (handLocation(), CGPoint(x: window.frame.midX, y: window.frame.midY))
             NSCursor.closedHand.set()
             return
         }
@@ -414,7 +419,7 @@ final class HourglassView: NSView {
             return
         }
         drop = nil  // caught mid-fall
-        drag = (NSEvent.mouseLocation, CGPoint(x: window.frame.midX, y: window.frame.midY), screenBox)
+        drag = (handLocation(), CGPoint(x: window.frame.midX, y: window.frame.midY), screenBox)
         dragged = false
         lastDragSample = nil
     }
@@ -428,11 +433,25 @@ final class HourglassView: NSView {
             needsDisplay = true
             return
         }
-        if let grab = topGrab, let window {
-            let push = window.convertPoint(toScreen: event.locationInWindow).x - grab.x
+        if let grab = topGrab {
+            let hand = handLocation()
+            let push = hand.x - grab.hand.x
             let side: Double = push < 0 ? -1 : 1
             if lean == nil {
-                guard abs(push) > 3 else { return }
+                // The hand's first few points of movement decide what it does, so a shaky sideways push stays a tilt.
+                let rise = hand.y - grab.hand.y
+                guard hypot(push, rise) > Self.gestureThreshold else { return }
+                if rise > abs(push) {
+                    // Pulled up: picked up by the top, carried like any drag.
+                    topGrab = nil
+                    drop = nil
+                    drag = (grab.hand, grab.upright, screenBox)
+                    dragged = false
+                    lastDragSample = nil
+                    return mouseDragged(with: event)
+                }
+                // Pushed down onto a timer standing on the ground: nothing to do.
+                guard rise > -abs(push) else { topGrab = nil; return }
                 holdWindowStillForLeaning(uprightAt: grab.upright)
             }
             // Swung back past upright to the other side: it now leans on the other corner.
@@ -447,7 +466,7 @@ final class HourglassView: NSView {
             return
         }
         guard drag != nil else { return }
-        let mouse = NSEvent.mouseLocation
+        let mouse = handLocation()
         if !dragged, let start = drag?.mouse, hypot(mouse.x - start.x, mouse.y - start.y) > 3 {
             dragged = true
         }

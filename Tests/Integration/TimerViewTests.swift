@@ -162,6 +162,33 @@ func timerViewTests() {
             expect(timer.isPaused, "still paused")
             expect(abs(timer.center.y - timer.screen.minY - 93 * timer.scale) < 1.5, "lying on its side again")
         }
+        test("pulled up by the top cap, it is picked up without tilting, and let go it drops back to the ground") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            let standing = timer.center
+            timer.pressTopCap()
+            timer.moveTopCap(by: CGVector(dx: 8, dy: 150))
+            expect(timer.view.handTilt == 0, "carried, not tilted: \(timer.view.handTilt)")
+            expect(timer.center.y - standing.y > 140 && abs(timer.center.x - standing.x - 8) < 1, "follows the hand up: \(timer.center) vs \(standing)")
+            timer.moveTopCap(by: CGVector(dx: 60, dy: 0))
+            expect(timer.view.handTilt == 0 && abs(timer.center.x - standing.x - 68) < 1, "and sideways once picked up, still upright")
+            timer.releaseTopCap()
+            timer.settle(minimum: 0.8)
+            expect(abs(timer.center.y - standing.y) < 1, "dropped back to the ground: \(timer.center.y) vs \(standing.y)")
+            expect(timer.isRunning, "a pick-up isn't a click")
+        }
+        test("pushed down on the top cap, nothing happens") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            let standing = timer.center
+            timer.pressTopCap()
+            timer.moveTopCap(by: CGVector(dx: 5, dy: -40))
+            timer.moveTopCap(by: CGVector(dx: 80, dy: 0))
+            timer.releaseTopCap()
+            timer.settle()
+            expect(timer.view.handTilt == 0 && timer.center == standing, "didn't tilt or move: \(timer.center) vs \(standing)")
+            expect(timer.isRunning, "and wasn't a click either")
+        }
         test("a press on the top cap without pushing is still an ordinary click") {
             let timer = TimerHarness(minutes: 25)
             timer.pressTopCap(); timer.releaseTopCap(); timer.settle()
