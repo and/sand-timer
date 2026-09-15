@@ -117,6 +117,35 @@ func timerViewTests() {
             timer.click(); timer.settle()
             expect(timer.isRunning && timer.view.handTilt == 0, "a click stands it back up and resumes")
         }
+        test("a toppled timer lifted back past its balance point settles upright and resumes") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            let standing = timer.center
+            timer.pressTopCap(); timer.pushTopCap(by: -220, steps: 20); timer.releaseTopCap()
+            timer.settle(minimum: 0.8)
+            expect(timer.isPaused, "toppled and paused")
+            let pivot = try require(timer.view.lyingPivot, "the corner it lies on")
+            timer.pressTopCap()
+            timer.liftTopCap(toLean: -0.15, from: -.pi / 2, pivot: pivot)
+            timer.releaseTopCap()
+            timer.settle(minimum: 1.5)
+            expect(timer.isRunning, "standing again, it carries on")
+            expect(abs(timer.center.x - standing.x) < 1.5 && abs(timer.center.y - standing.y) < 1.5,
+                   "back where it stood: \(timer.center) vs \(standing)")
+        }
+        test("lifted only part way, it falls back onto its side and stays paused") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            timer.pressTopCap(); timer.pushTopCap(by: 220, steps: 20); timer.releaseTopCap()
+            timer.settle(minimum: 0.8)
+            let pivot = try require(timer.view.lyingPivot, "the corner it lies on")
+            timer.pressTopCap()
+            timer.liftTopCap(toLean: 1.0, from: .pi / 2, pivot: pivot)
+            timer.releaseTopCap()
+            timer.settle(minimum: 1.0)
+            expect(timer.isPaused, "still paused")
+            expect(abs(timer.center.y - timer.screen.minY - 93 * timer.scale) < 1.5, "lying on its side again")
+        }
         test("a press on the top cap without pushing is still an ordinary click") {
             let timer = TimerHarness(minutes: 25)
             timer.pressTopCap(); timer.releaseTopCap(); timer.settle()

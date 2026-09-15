@@ -46,7 +46,11 @@ final class HourglassView: NSView {
         var angle: Double
         let side: Double
         let pivot: CGPoint
+        /// Being lifted back up from lying on its side, rather than tilted from standing.
+        var lifting = false
     }
+    /// While lifting a toppled timer by its top cap: where the hand started, as an angle around the pivot, and the lean then.
+    private var liftGrab: (handAngle: Double, startAngle: Double)?
     private var lean: Lean?
     /// Screen x where the top cap was grabbed, while the hand holds it.
     private var topGrab: CGFloat?
@@ -54,6 +58,24 @@ final class HourglassView: NSView {
     /// How each heap has slumped from being tilted (per-column height changes), kept until the sand is next leveled.
     private var topSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
     private var bottomSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
+    /// Screen position of the middle of the top cap, standing or lying down. For grabbing it (and for tests).
+    var topCapScreenPoint: CGPoint? {
+        guard let window else { return nil }
+        let scale = Self.sizes[sizeIndex].scale
+        if lyingAngle == 0 { return CGPoint(x: window.frame.midX, y: window.frame.midY + 177 * scale) }
+        guard let pivot = lyingPivot else { return nil }
+        let offset = SandPhysics.topCapFromPivot(angle: lyingAngle, side: lyingAngle < 0 ? -1 : 1)
+        return CGPoint(x: pivot.x + CGFloat(offset.x) * scale, y: pivot.y + CGFloat(offset.y) * scale)
+    }
+
+    /// Screen position of the corner a toppled timer lies on (what it swings about when lifted back up).
+    var lyingPivot: CGPoint? {
+        guard let window, lyingAngle != 0, lean == nil else { return nil }
+        let offset = SandPhysics.centerFromPivot(angle: lyingAngle, side: lyingAngle < 0 ? -1 : 1)
+        let scale = Self.sizes[sizeIndex].scale
+        return CGPoint(x: window.frame.midX - CGFloat(offset.x) * scale, y: window.frame.midY - CGFloat(offset.y) * scale)
+    }
+
     /// How far the timer currently leans from being tilted by hand (radians).
     var handTilt: Double { lean?.angle ?? 0 }
     /// 0 standing up; a quarter turn (positive = fell to the right) while lying on its side, paused.
@@ -162,13 +184,14 @@ final class HourglassView: NSView {
             if motion.isSettled {
                 rocking = nil
                 lean = nil
+                if current.lifting { standUpFinished(at: now) }
                 placeWindow(around: leanCenter(Lean(angle: 0, side: current.side, pivot: current.pivot)), expanded: false)
             } else {
                 rocking = motion
                 lean = current
             }
         }
-        if let current = lean, abs(current.angle) > 0.003 { slumpHeaps(tilt: current.angle, at: now) }
+        if let current = lean, !current.lifting, abs(current.angle) > 0.003 { slumpHeaps(tilt: current.angle, at: now) }
 
         if let tip {
             if now.timeIntervalSince(tip.start) >= tipDuration(tip) {
@@ -302,7 +325,7 @@ final class HourglassView: NSView {
             frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
             liftedByHand = abs(cos(angle))
         } else if tip != nil || lyingAngle != 0 {
-            angle = tipAngle(at: now)
+            angle = lean?.angle ?? tipAngle(at: now)
             // Tipping over shakes the heaps flat before the sand slides along the wall.
             frame.shapeAmount = max(0, 1 - abs(angle) / SandPhysics.slideThreshold)
             frame.turning = SandPhysics.lyingSand(angle: angle, progress: frame.progress)
@@ -378,6 +401,18 @@ final class HourglassView: NSView {
             NSCursor.closedHand.set()
             return
         }
+        // Pressing the top cap of a toppled timer: lift it back up about the corner it lies on.
+        let hand = window.convertPoint(toScreen: event.locationInWindow)
+        if canLiftByHand, isOnLyingTopCap(hand), let pivot = lyingPivot {
+            let side: Double = lyingAngle < 0 ? -1 : 1
+            let current = Lean(angle: lyingAngle, side: side, pivot: pivot, lifting: true)
+            lean = current
+            liftGrab = (atan2(Double(hand.y - pivot.y), Double(hand.x - pivot.x)), lyingAngle)
+            holdWindowStill(from: leanCenter(current), to: leanCenter(Lean(angle: 0, side: side, pivot: pivot)))
+            NSCursor.closedHand.set()
+            needsDisplay = true
+            return
+        }
         drop = nil  // caught mid-fall
         drag = (NSEvent.mouseLocation, CGPoint(x: window.frame.midX, y: window.frame.midY), screenBox)
         dragged = false
@@ -385,6 +420,14 @@ final class HourglassView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let grab = liftGrab, var current = lean, let window {
+            let hand = window.convertPoint(toScreen: event.locationInWindow)
+            let sweep = atan2(Double(hand.y - current.pivot.y), Double(hand.x - current.pivot.x)) - grab.handAngle
+            current.angle = SandPhysics.leanAngle(startingAt: grab.startAngle, handSweep: atan2(sin(sweep), cos(sweep)), side: current.side)
+            lean = current
+            needsDisplay = true
+            return
+        }
         if let grab = topGrab, let window {
             let push = window.convertPoint(toScreen: event.locationInWindow).x - grab
             if lean == nil {
@@ -419,6 +462,23 @@ final class HourglassView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let grab = liftGrab, let current = lean {
+            liftGrab = nil
+            NSCursor.openHand.set()
+            if abs(current.angle - grab.startAngle) < 0.01 {
+                // Pressed without lifting: put things back and treat it as a click.
+                lean = nil
+                placeWindow(around: leanCenter(current), expanded: true)
+                if event.clickCount == 1 { handleClick() }
+            } else if abs(current.angle) <= SandPhysics.tippingAngle {
+                rocking = Rocking(angle: current.angle)  // past its balance point: it settles upright
+            } else {
+                // Not lifted far enough: it falls back onto its side.
+                lean = nil
+                tip = (from: current.angle, to: current.side * .pi / 2, start: Date(), pivot: current.pivot, side: current.side, then: {})
+            }
+            return
+        }
         if topGrab != nil {
             topGrab = nil
             NSCursor.openHand.set()
@@ -451,6 +511,32 @@ final class HourglassView: NSView {
     }
 
     // MARK: Tilting by hand
+
+    private var canLiftByHand: Bool {
+        !floats && lyingAngle != 0 && flip == nil && tip == nil && drop == nil && lean == nil
+    }
+
+    /// Whether a screen point is on the top cap of the timer lying on its side.
+    private func isOnLyingTopCap(_ point: CGPoint) -> Bool {
+        guard let pivot = lyingPivot else { return false }
+        let scale = Double(Self.sizes[sizeIndex].scale)
+        let side: Double = lyingAngle < 0 ? -1 : 1
+        // Turn the point back into the standing timer's frame, relative to the pivot corner.
+        let rx = Double(point.x - pivot.x) / scale, ry = Double(point.y - pivot.y) / scale
+        let x = rx * cos(lyingAngle) - ry * sin(lyingAngle), y = rx * sin(lyingAngle) + ry * cos(lyingAngle)
+        let capMiddle = -SandPhysics.outlineHalfWidth * side
+        return abs(x - capMiddle) <= SandPhysics.outlineHalfWidth && y >= 350 && y <= 402
+    }
+
+    /// Lifted back up past its balance point and settled: it's standing again, so the sand levels and the timer resumes.
+    private func standUpFinished(at now: Date) {
+        lyingAngle = 0
+        settleSand(at: now)
+        if clock.isPaused(at: now) {
+            clock.resume(at: now)
+            releasedAt = now.addingTimeInterval(SandPhysics.releaseDelay)
+        }
+    }
 
     private var canTiltByHand: Bool {
         !floats && lyingAngle == 0 && flip == nil && tip == nil && drop == nil && lean == nil
@@ -526,8 +612,9 @@ final class HourglassView: NSView {
 
     /// An open hand over the top cap shows it can be pushed to tilt the timer.
     private func updateCursor(_ event: NSEvent) {
-        guard topGrab == nil else { return }
-        let overTopCap = canTiltByHand && isOnTopCap(convert(event.locationInWindow, from: nil))
+        guard topGrab == nil, liftGrab == nil, let window else { return }
+        let overTopCap = (canTiltByHand && isOnTopCap(convert(event.locationInWindow, from: nil)))
+            || (canLiftByHand && isOnLyingTopCap(window.convertPoint(toScreen: event.locationInWindow)))
         (overTopCap ? NSCursor.openHand : NSCursor.arrow).set()
     }
 

@@ -497,6 +497,21 @@ extension SandPhysics {
         return side * min(.pi / 2, max(0, lean0 + asin(s)))
     }
 
+    /// Where the middle of the top cap is relative to the corner the timer leans or lies on (drawing units, y up), when
+    /// it's tilted `angle` radians about the bottom corner on `side`.
+    static func topCapFromPivot(angle: Double, side: Double) -> (x: Double, y: Double) {
+        let x = -outlineHalfWidth * side, y = 377.0
+        return (x * cos(angle) + y * sin(angle), -x * sin(angle) + y * cos(angle))
+    }
+
+    /// How far a timer leans once a hand holding its top cap has swept `handSweep` radians around the pivot corner
+    /// (counterclockwise positive, as screen angles go), starting from `start`. The timer points toward the hand, and can
+    /// go no further than lying flat or standing upright on that corner.
+    static func leanAngle(startingAt start: Double, handSweep: Double, side: Double) -> Double {
+        let angle = start - handSweep
+        return side > 0 ? min(.pi / 2, max(0, angle)) : max(-.pi / 2, min(0, angle))
+    }
+
     /// Angular acceleration (rad/s²) gravity gives the timer when it leans on an edge, per unit of sin(lean left before
     /// the tipping point): g × (distance from the pivot to the center of mass) ÷ (moment of inertia per unit mass) for a
     /// 15 cm solid block, slowed about 3× in time like the drop, so the rocking is visible.

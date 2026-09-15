@@ -61,9 +61,23 @@ final class TimerHarness {
 
     /// Presses on the middle of the top cap, like putting a finger on a real timer.
     func pressTopCap() {
-        let windowPoint = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY - 177 * scale), to: nil)
-        fingerOnScreen = panel.convertPoint(toScreen: windowPoint)
-        sendMouse(.leftMouseDown, at: windowPoint)
+        guard let top = view.topCapScreenPoint else { return }
+        fingerOnScreen = top
+        sendMouse(.leftMouseDown, at: panel.convertPoint(fromScreen: top))
+    }
+
+    /// Lifts a toppled timer by its top cap (already pressed), sweeping the hand around the corner it lies on until the
+    /// timer leans `target` radians from upright.
+    func liftTopCap(toLean target: Double, from lying: Double, pivot: CGPoint, steps: Int = 24) {
+        let side: Double = lying < 0 ? -1 : 1
+        for i in 1...steps {
+            let angle = lying + (target - lying) * Double(i) / Double(steps)
+            let offset = SandPhysics.topCapFromPivot(angle: angle, side: side)
+            let screen = CGPoint(x: pivot.x + CGFloat(offset.x) * scale, y: pivot.y + CGFloat(offset.y) * scale)
+            sendMouse(.leftMouseDragged, at: panel.convertPoint(fromScreen: screen))
+            fingerOnScreen = screen
+            run(1.0 / 60)
+        }
     }
 
     /// Pushes the pressed top cap sideways by `points`, a little at a time.

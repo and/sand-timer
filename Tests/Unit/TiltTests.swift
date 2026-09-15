@@ -51,6 +51,16 @@ func tiltTests() {
             expect(zip(cone.prefix(15), slumped.prefix(15)).allSatisfy { abs($0 - $1) < 1e-9 }, "the uphill side is left alone")
             expect(slumped[30] > cone[30], "sand has moved down the far side")
         }
+        test("a toppled timer can be lifted back by its top cap, pointing toward the hand") {
+            let upright = P.topCapFromPivot(angle: 0, side: 1)
+            expect(near(upright.x, -P.outlineHalfWidth) && near(upright.y, 377), "standing, the top cap is above and inward of the corner")
+            let lying = P.topCapFromPivot(angle: .pi / 2, side: 1)
+            expect(near(lying.x, 377, 1e-9) && near(lying.y, P.outlineHalfWidth, 1e-9), "toppled right, it's out to the right, low down")
+            expect(near(P.leanAngle(startingAt: .pi / 2, handSweep: 0.5, side: 1), .pi / 2 - 0.5), "sweeping the hand up lifts it")
+            expect(P.leanAngle(startingAt: .pi / 2, handSweep: 3, side: 1) == 0, "it stops at upright")
+            expect(P.leanAngle(startingAt: .pi / 2, handSweep: -1, side: 1) == .pi / 2, "and can't go below lying flat")
+            expect(near(P.leanAngle(startingAt: -.pi / 2, handSweep: -0.5, side: -1), -.pi / 2 + 0.5), "the same on the other side")
+        }
         test("slump changes are read back smoothly across the bulb") {
             var changes = [Double](repeating: 0, count: P.slumpColumns)
             changes[24] = 2
