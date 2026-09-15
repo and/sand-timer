@@ -141,11 +141,16 @@ func timerViewTests() {
             }
         }
         test("the stream is thicker for short timers and finer for long ones") {
-            func streamWidth(minutes: Int) -> Double {
+            // The stream flickers with time, so all three are rendered back to back (sharing the same flicker) before the
+            // slow pixel measuring, at several moments, and the widths are averaged.
+            func render(minutes: Int) -> (HourglassView, NSBitmapImageRep) {
                 let view = HourglassView(minutes: minutes, themeIndex: 0, sizeIndex: 2)
                 view.setPreview(progress: 0.3, running: true)
                 let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
                 view.cacheDisplay(in: view.bounds, to: rep)
+                return (view, rep)
+            }
+            func streamWidth(_ view: HourglassView, _ rep: NSBitmapImageRep) -> Double {
                 // Rows through the upper part of the lower bulb, where only the stream crosses. Coverage is summed from each
                 // pixel's opacity so differences smaller than a pixel still count, and grains racing down the stream widen
                 // single rows, so take the typical (median) row.
@@ -159,7 +164,13 @@ func timerViewTests() {
                 }.sorted()
                 return widths[widths.count / 2]
             }
-            let one = streamWidth(minutes: 1), pomodoro = streamWidth(minutes: 25), hour = streamWidth(minutes: 60)
+            var totals = [0.0, 0.0, 0.0]
+            for _ in 0..<5 {
+                let renders = [1, 25, 60].map(render)
+                for (i, (view, rep)) in renders.enumerated() { totals[i] += streamWidth(view, rep) / 5 }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.13))
+            }
+            let (one, pomodoro, hour) = (totals[0], totals[1], totals[2])
             expect(one > pomodoro && pomodoro > hour, "stream widths in pixels: 1 min \(one), 25 min \(pomodoro), 60 min \(hour)")
         }
         test("sand pours through a wide neck without a seam where it meets the stream") {

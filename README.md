@@ -9,7 +9,7 @@ start, and watch the sand run.
 
 ## Get it
 
-1. Download **SandTimer-1.0.0.dmg** from the [latest release](https://github.com/and/sand-timer/releases/latest).
+1. Download the **.dmg** from the [latest release](https://github.com/and/sand-timer/releases/latest).
 2. Open it and drag **Sand Timer** into **Applications**.
 3. Open it from Applications. No security warning, no setup, no account.
 
