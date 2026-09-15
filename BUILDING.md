@@ -36,7 +36,7 @@ for i in $(seq 0 35); do
 done
 ffmpeg -framerate 12 -i frames/f%03d.png -vf "scale=260:-1:flags=lanczos,palettegen" palette.png
 ffmpeg -framerate 12 -i frames/f%03d.png -i palette.png \
-  -lavfi "scale=260:-1:flags=lanczos[x];[x][1:v]paletteuse" docs/sand-timer.gif
+  -lavfi "scale=260:-1:flags=lanczos[x];[x][1:v]paletteuse" docs/sand-running.gif
 ```
 
 The shared palette matters: generated per frame, the sand's speckle bands badly.
