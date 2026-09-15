@@ -478,3 +478,109 @@ struct Agitation {
         windowSpeed * (SandPhysics.earthGravity * metersPerPoint / Drop.gravity).squareRoot()
     }
 }
+
+// MARK: - Tilting by hand
+
+extension SandPhysics {
+    /// The steepest the timer can lean on a base edge and still fall back upright. Past this its center of mass is
+    /// beyond the edge and it topples: about 25° for a 400-unit-tall timer on 186-unit base discs.
+    static var tippingAngle: Double { atan(outlineHalfWidth / 200) }
+
+    /// How far the timer leans (radians, positive = clockwise on screen) when the middle of its top cap is pushed
+    /// `shift` drawing units sideways, pivoting on the bottom corner on the side it's pushed toward.
+    static func tiltAngle(forTopShift shift: Double) -> Double {
+        let side: Double = shift < 0 ? -1 : 1
+        // The top cap's middle sits `reach` from the pivot corner, `lean0` radians inward from straight up.
+        let reach = (outlineHalfWidth * outlineHalfWidth + 400 * 400).squareRoot()
+        let lean0 = atan2(outlineHalfWidth, 400)
+        let s = min(1, max(-1, (abs(shift) - outlineHalfWidth) / reach))
+        return side * min(.pi / 2, max(0, lean0 + asin(s)))
+    }
+
+    /// Angular acceleration (rad/s²) gravity gives the timer when it leans on an edge, per unit of sin(lean left before
+    /// the tipping point): g × (distance from the pivot to the center of mass) ÷ (moment of inertia per unit mass) for a
+    /// 15 cm solid block, slowed about 3× in time like the drop, so the rocking is visible.
+    static var rockingStrength: Double {
+        let metersPerUnit = timerHeightMeters / 400
+        let width = 2 * outlineHalfWidth * metersPerUnit, height = timerHeightMeters
+        let pivotToCenter = (outlineHalfWidth * outlineHalfWidth + 200 * 200).squareRoot() * metersPerUnit
+        return earthGravity * pivotToCenter * 3 / (width * width + height * height) / 9
+    }
+
+    /// Lets a sand surface slump wherever tilting the glass by `tilt` (radians, clockwise on screen) has made it steeper
+    /// than sand can hold, moving sand downhill between neighbouring columns. `heights` are surface heights (upward) at
+    /// evenly spaced columns `spacing` apart. Sand is conserved and slopes that aren't too steep are left alone, so the
+    /// uphill side of a heap stays put. Each iteration moves a little sand, so a few per frame show the slump happening.
+    static func relaxSlopes(_ heights: [Double], spacing: Double, tilt: Double, iterations: Int) -> [Double] {
+        var h = heights
+        guard h.count > 1 else { return h }
+        let repose = atan(reposeSlope), slack = 0.02, limit = Double.pi / 2 - 0.05
+        // Seen upright, a surface segment at angle a (rising to the right) is at a − tilt.
+        let steepestRise = spacing * tan(min(limit, tilt + repose + slack))
+        let steepestFall = spacing * tan(max(-limit, tilt - repose - slack))
+        for _ in 0..<iterations {
+            for i in 0..<(h.count - 1) {
+                let step = h[i + 1] - h[i]
+                if step > steepestRise {
+                    let moved = (step - steepestRise) / 2
+                    h[i + 1] -= moved
+                    h[i] += moved
+                } else if step < steepestFall {
+                    let moved = (steepestFall - step) / 2
+                    h[i] -= moved
+                    h[i + 1] += moved
+                }
+            }
+        }
+        return h
+    }
+
+    /// Columns used to remember how a heap has slumped, across the inside of a bulb.
+    static let slumpColumns = 49
+    static let slumpHalfWidth = 52.0
+
+    static var slumpColumnOffsets: [Double] {
+        (0..<slumpColumns).map { -slumpHalfWidth + 2 * slumpHalfWidth * Double($0) / Double(slumpColumns - 1) }
+    }
+
+    /// How much a slumped heap's surface is raised or lowered at `offset` from the center, from per-column `changes`.
+    static func slump(_ changes: [Double], at offset: Double) -> Double {
+        guard changes.count == slumpColumns, abs(offset) <= slumpHalfWidth else { return 0 }
+        let position = (offset + slumpHalfWidth) / (2 * slumpHalfWidth) * Double(slumpColumns - 1)
+        let i = min(slumpColumns - 2, Int(position))
+        return changes[i] + (changes[i + 1] - changes[i]) * (position - Double(i))
+    }
+}
+
+/// A timer let go while leaning on a base edge, short of its tipping point: gravity swings it back upright, and it
+/// lands on its base with a clack and a small rebound or two before settling.
+struct Rocking {
+    static let restitution = 0.35
+    /// Rebounds slower than this (rad/s) just settle.
+    static let settleSpeed = 0.25
+
+    private(set) var angle: Double
+    private(set) var velocity = 0.0
+    /// Angular speed of a landing on the base during the last step, if any.
+    private(set) var impactSpeed: Double?
+
+    init(angle: Double) { self.angle = angle }
+
+    var isSettled: Bool { angle == 0 && velocity == 0 }
+    var hasToppled: Bool { abs(angle) >= SandPhysics.tippingAngle }
+
+    mutating func step(dt: Double) {
+        impactSpeed = nil
+        guard !isSettled, !hasToppled else { return }
+        let side: Double = angle < 0 ? -1 : 1
+        velocity -= side * SandPhysics.rockingStrength * sin(SandPhysics.tippingAngle - abs(angle)) * dt
+        angle += velocity * dt
+        guard angle == 0 || (angle < 0) != (side < 0) else { return }
+        // Back on its base: it lands, and may rebound a little onto the same edge.
+        impactSpeed = abs(velocity)
+        let rebound = abs(velocity) * Self.restitution
+        angle = 0
+        velocity = rebound < Self.settleSpeed ? 0 : side * rebound
+        if velocity != 0 { angle = side * 1e-6 }
+    }
+}

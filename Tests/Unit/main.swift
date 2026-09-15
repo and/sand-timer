@@ -2,6 +2,7 @@
 clockTests()
 sandTests()
 motionTests()
+tiltTests()
 soundTests()
 themeTests()
 TestKit.finish()

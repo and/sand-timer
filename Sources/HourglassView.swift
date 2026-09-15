@@ -41,6 +41,21 @@ final class HourglassView: NSView {
     private var flip: (start: Date, from: SandClock)?
     /// Tipping onto its side to pause, or standing back up. `groundY` is the screen y the timer pivots on.
     private var tip: (from: Double, to: Double, start: Date, pivot: CGPoint, side: Double, then: () -> Void)?
+    /// Leaning on a base edge: while the top cap is pushed by hand, and while it rocks back upright afterwards.
+    private struct Lean {
+        var angle: Double
+        let side: Double
+        let pivot: CGPoint
+    }
+    private var lean: Lean?
+    /// Screen x where the top cap was grabbed, while the hand holds it.
+    private var topGrab: CGFloat?
+    private var rocking: Rocking?
+    /// How each heap has slumped from being tilted (per-column height changes), kept until the sand is next leveled.
+    private var topSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
+    private var bottomSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
+    /// How far the timer currently leans from being tilted by hand (radians).
+    var handTilt: Double { lean?.angle ?? 0 }
     /// 0 standing up; a quarter turn (positive = fell to the right) while lying on its side, paused.
     private var lyingAngle = 0.0
     /// When the display at the new base switches on after a flip lands.
@@ -136,6 +151,25 @@ final class HourglassView: NSView {
             }
         }
 
+        if var motion = rocking, var current = lean {
+            motion.step(dt: dt)
+            current.angle = motion.angle
+            if let speed = motion.impactSpeed {
+                // Its base lands flat again: a small clack, and a jolt for the sand.
+                agitation.impact(speed: speed * SandPhysics.timerHeightMeters / 2)
+                if soundOn { Sounds.playFall(impactSpeed: speed * SandPhysics.timerHeightMeters) }
+            }
+            if motion.isSettled {
+                rocking = nil
+                lean = nil
+                placeWindow(around: leanCenter(Lean(angle: 0, side: current.side, pivot: current.pivot)), expanded: false)
+            } else {
+                rocking = motion
+                lean = current
+            }
+        }
+        if let current = lean, abs(current.angle) > 0.003 { slumpHeaps(tilt: current.angle, at: now) }
+
         if let tip {
             if now.timeIntervalSince(tip.start) >= tipDuration(tip) {
                 // Now that it's still, move the window to where the timer came to rest and draw it centered again.
@@ -203,7 +237,11 @@ final class HourglassView: NSView {
             let progress = clock.progress(at: now)
             topSettledProgress += (progress - topSettledProgress) * flatten
             bottomSettledProgress += (progress - bottomSettledProgress) * flatten
+            topSlump = topSlump.map { $0 * (1 - flatten) }
+            bottomSlump = bottomSlump.map { $0 * (1 - flatten) }
         }
+        // The top keeps draining, which gradually wears away the shape it slumped into.
+        if stream != nil { topSlump = topSlump.map { $0 * exp(-dt / 12) } }
         let visible = window?.isVisible == true
         // Shaken sand rattles, louder the more it's stirred up; it fades with the sand as each jolt settles.
         if let rattle = Sounds.shake {
@@ -218,9 +256,9 @@ final class HourglassView: NSView {
         let pouring = visible && grainSoundOn && stream.map { $0.front > 150 && $0.tail < 150 } == true
         Sounds.setPour(active: pouring, glassiness: pouring ? SandPhysics.pourGlassiness(progress: clock.progress(at: now)) : 0)
 
-        let moving = flip != nil || tip != nil || !streamLean.isSettled || !agitation.isSettled
+        let moving = flip != nil || tip != nil || lean != nil || !streamLean.isSettled || !agitation.isSettled
         let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
-        if tip == nil { setExpanded(flip != nil || lyingAngle != 0) }
+        if tip == nil && lean == nil { setExpanded(flip != nil || lyingAngle != 0) }
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
         let settling = displaySwitchingOn
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
@@ -252,6 +290,8 @@ final class HourglassView: NSView {
         var frame = SandFrame(progress: clock.progress(at: now))
         frame.topSettledProgress = topSettledProgress
         frame.bottomSettledProgress = bottomSettledProgress
+        frame.topSlump = topSlump
+        frame.bottomSlump = bottomSlump
         var angle = 0.0
         var liftedByHand = 1.0  // a flip lifts the timer off the desk
         if let flip {
@@ -272,7 +312,9 @@ final class HourglassView: NSView {
             frame.turning = SandPhysics.turningSand(angle: angle, progress: frame.progress)
             frame.agitation = previewAgitation ?? 0
         } else {
-            frame.streamTilt = previewAngle ?? streamLean.angle
+            // Leaning by hand, the glass tilts but the stream still falls straight down.
+            if let lean { angle = lean.angle }
+            frame.streamTilt = (previewAngle ?? streamLean.angle) + angle
             frame.agitation = previewAgitation ?? agitation.level
             frame.stream = streamExtent(at: now)
             frame.landedProgress = SandPhysics.landedProgress(progress: frame.progress, settledProgress: bottomSettledProgress,
@@ -285,6 +327,9 @@ final class HourglassView: NSView {
         var shift = CGPoint.zero
         if let tip, let window {
             let center = tipCenter(tip, angle: angle)
+            shift = CGPoint(x: center.x - window.frame.midX, y: center.y - window.frame.midY)
+        } else if let lean, let window {
+            let center = leanCenter(lean)
             shift = CGPoint(x: center.x - window.frame.midX, y: center.y - window.frame.midY)
         }
         func placeTimer(rotated: Bool) {
@@ -327,6 +372,12 @@ final class HourglassView: NSView {
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) { return rightMouseDown(with: event) }
         guard let window, flip == nil, tip == nil else { return }
+        // Pressing on the top cap of a standing timer: push sideways to tilt it, like a finger on a real one.
+        if canTiltByHand, isOnTopCap(convert(event.locationInWindow, from: nil)) {
+            topGrab = window.convertPoint(toScreen: event.locationInWindow).x
+            NSCursor.closedHand.set()
+            return
+        }
         drop = nil  // caught mid-fall
         drag = (NSEvent.mouseLocation, CGPoint(x: window.frame.midX, y: window.frame.midY), screenBox)
         dragged = false
@@ -334,6 +385,21 @@ final class HourglassView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let grab = topGrab, let window {
+            let push = window.convertPoint(toScreen: event.locationInWindow).x - grab
+            if lean == nil {
+                guard abs(push) > 3 else { return }
+                startLean(side: push < 0 ? -1 : 1)
+            }
+            guard var current = lean else { return }
+            let angle = SandPhysics.tiltAngle(forTopShift: Double(push / Self.sizes[sizeIndex].scale))
+            current.angle = (angle < 0) == (current.side < 0) ? angle : 0
+            lean = current
+            // Past its tipping point it goes over on its own.
+            if abs(current.angle) >= SandPhysics.tippingAngle { topple(from: current) }
+            needsDisplay = true
+            return
+        }
         guard drag != nil else { return }
         let mouse = NSEvent.mouseLocation
         if !dragged, let start = drag?.mouse, hypot(mouse.x - start.x, mouse.y - start.y) > 3 {
@@ -353,22 +419,116 @@ final class HourglassView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if topGrab != nil {
+            topGrab = nil
+            NSCursor.openHand.set()
+            // Let go while leaning: it rocks back upright. Pressed without pushing: an ordinary click.
+            if let current = lean { rocking = Rocking(angle: current.angle) } else if event.clickCount == 1 { handleClick() }
+            return
+        }
         defer { drag = nil; dragged = false }
         guard drag != nil else { return }
         if dragged {
             letGo()
         } else if event.clickCount == 1 {
-            // Click to start, pause and resume like any timer. A stray click on a running timer only pauses it,
-            // which the next click undoes; flipping mid-run is left to the menu.
-            let now = Date()
-            if clock.isRunning(at: now) {
-                pauseClicked()
-            } else if clock.isPaused(at: now) {
-                resumeClicked()
-            } else {
-                flipTimer()
-            }
+            handleClick()
         }
+    }
+
+    /// Click to start, pause and resume like any timer. A stray click on a running timer only pauses it, which the next
+    /// click undoes; flipping mid-run is left to the menu.
+    private func handleClick() {
+        let now = Date()
+        if lyingAngle != 0 && !clock.isPaused(at: now) {
+            tipOver(to: 0) {}  // knocked over when it wasn't running: just stand it back up
+        } else if clock.isRunning(at: now) {
+            pauseClicked()
+        } else if clock.isPaused(at: now) {
+            resumeClicked()
+        } else {
+            flipTimer()
+        }
+    }
+
+    // MARK: Tilting by hand
+
+    private var canTiltByHand: Bool {
+        !floats && lyingAngle == 0 && flip == nil && tip == nil && drop == nil && lean == nil
+    }
+
+    /// Whether a point in this view is on the top cap of the standing timer.
+    private func isOnTopCap(_ point: CGPoint) -> Bool {
+        let scale = Self.sizes[sizeIndex].scale
+        return abs(point.x - bounds.midX) <= CGFloat(SandPhysics.outlineHalfWidth) * scale
+            && point.y >= bounds.midY - 200 * scale && point.y <= bounds.midY - 154 * scale
+    }
+
+    private func leanCenter(_ lean: Lean) -> CGPoint {
+        let offset = SandPhysics.centerFromPivot(angle: lean.angle, side: lean.side)
+        let scale = Self.sizes[sizeIndex].scale
+        return CGPoint(x: lean.pivot.x + CGFloat(offset.x) * scale, y: lean.pivot.y + CGFloat(offset.y) * scale)
+    }
+
+    /// Starts leaning on the bottom corner on `side`, holding the window still over everything from standing to toppled.
+    private func startLean(side: Double) {
+        guard let window else { return }
+        let scale = Self.sizes[sizeIndex].scale
+        let start = CGPoint(x: window.frame.midX, y: window.frame.midY)
+        let upright = SandPhysics.centerFromPivot(angle: 0, side: side)
+        let pivot = CGPoint(x: start.x - CGFloat(upright.x) * scale, y: start.y - CGFloat(upright.y) * scale)
+        lean = Lean(angle: 0, side: side, pivot: pivot)
+        let fallen = SandPhysics.centerFromPivot(angle: side * .pi / 2, side: side)
+        let end = keptCenter(CGPoint(x: pivot.x + CGFloat(fallen.x) * scale, y: pivot.y + CGFloat(fallen.y) * scale), angle: side * .pi / 2)
+        holdWindowStill(from: start, to: end)
+    }
+
+    /// Past the tipping point: it topples onto its side from where it leans, and pauses like being knocked over.
+    private func topple(from current: Lean) {
+        let now = Date()
+        if clock.isRunning(at: now) { clock.pause(at: now) }
+        lean = nil
+        rocking = nil
+        topGrab = nil
+        tip = (from: current.angle, to: current.side * .pi / 2, start: now, pivot: current.pivot, side: current.side, then: {})
+        needsDisplay = true
+    }
+
+    /// Lets each heap slump where tilting has made it steeper than sand can hold, remembering the new shape.
+    private func slumpHeaps(tilt: Double, at now: Date) {
+        let columns = SandPhysics.slumpColumnOffsets
+        let spacing = 2 * SandPhysics.slumpHalfWidth / Double(SandPhysics.slumpColumns - 1)
+        let progress = clock.progress(at: now)
+        let landed = SandPhysics.landedProgress(progress: progress, settledProgress: bottomSettledProgress,
+                                                duration: clock.duration, falling: streamExtent(at: now) != nil)
+        if landed > 0 {
+            let pile = SandPhysics.bottomPile(progress: landed, settledProgress: bottomSettledProgress)
+            let base = columns.map { pile.naturalHeight(atOffset: $0, rough: false) }
+            let relaxed = SandPhysics.relaxSlopes(zip(base, bottomSlump).map { $0 + $1 }, spacing: spacing, tilt: tilt, iterations: 3)
+            bottomSlump = zip(relaxed, base).map { $0 - $1 }
+        }
+        if progress < 1 {
+            let crater = SandPhysics.topCrater(progress: progress, settledProgress: topSettledProgress)
+            let base = columns.map { crater.naturalHeight(atOffset: $0, rough: false) }
+            let relaxed = SandPhysics.relaxSlopes(zip(base, topSlump).map { $0 + $1 }, spacing: spacing, tilt: tilt, iterations: 3)
+            topSlump = zip(relaxed, base).map { $0 - $1 }
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
+    override func mouseMoved(with event: NSEvent) { updateCursor(event) }
+
+    /// An open hand over the top cap shows it can be pushed to tilt the timer.
+    private func updateCursor(_ event: NSEvent) {
+        guard topGrab == nil else { return }
+        let overTopCap = canTiltByHand && isOnTopCap(convert(event.locationInWindow, from: nil))
+        (overTopCap ? NSCursor.openHand : NSCursor.arrow).set()
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -423,19 +583,24 @@ final class HourglassView: NSView {
         let start = CGPoint(x: window.frame.midX, y: window.frame.midY)
         let newTip = (from: lyingAngle, to: angle, start: Date(), pivot: pivot, side: side, then: then)
         tip = newTip
-        // One still window big enough for the timer at any angle anywhere along its path.
-        let end = tipCenter(newTip, angle: angle)
+        holdWindowStill(from: start, to: tipCenter(newTip, angle: angle))
+        if angle == 0, soundOn, let sound = Sounds.standUp(standUpDuration: Self.standUpDuration) {
+            sound.stop()
+            sound.play()
+        }
+        needsDisplay = true
+    }
+
+    /// One still window big enough for the timer at any angle anywhere between two centers, so a movement between them
+    /// is drawn inside it without the window moving.
+    private func holdWindowStill(from start: CGPoint, to end: CGPoint) {
+        guard let window else { return }
         let content = Self.contentSize(sizeIndex: sizeIndex)
         let reach = ceil(hypot(content.width, content.height) / 2) + 2
         expansion = nil
         window.setFrame(NSRect(x: floor(min(start.x, end.x) - reach), y: floor(min(start.y, end.y) - reach),
                                width: ceil(abs(end.x - start.x) + 2 * reach), height: ceil(abs(end.y - start.y) + 2 * reach)),
                         display: false)
-        if angle == 0, soundOn, let sound = Sounds.standUp(standUpDuration: Self.standUpDuration) {
-            sound.stop()
-            sound.play()
-        }
-        needsDisplay = true
     }
 
     /// Grows the window (keeping the timer in place) while it turns or lies on its side, so nothing is clipped.
@@ -527,6 +692,8 @@ final class HourglassView: NSView {
     private func settleSand(at now: Date) {
         topSettledProgress = clock.progress(at: now)
         bottomSettledProgress = topSettledProgress
+        topSlump = topSlump.map { _ in 0 }
+        bottomSlump = bottomSlump.map { _ in 0 }
     }
 
     /// "Pause" or "Resume" for the menu bar's menu, or nil when the timer isn't running or paused.
@@ -591,6 +758,8 @@ final class HourglassView: NSView {
             releasedAt = Date()
             topSettledProgress = 0
             bottomSettledProgress = 0
+            topSlump = topSlump.map { _ in 0 }
+            bottomSlump = bottomSlump.map { _ in 0 }
             needsDisplay = true
         }
         guard flip == nil, tip == nil else { return }

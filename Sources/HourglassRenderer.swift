@@ -48,6 +48,9 @@ struct SandFrame {
     /// Progress when each bulb's sand last settled flat: the top's crater and the bottom's new pile grow from there.
     var topSettledProgress: Double = 0
     var bottomSettledProgress: Double = 0
+    /// How each heap has slumped from being tilted: per-column height changes (see `SandPhysics.slump`).
+    var topSlump: [Double] = []
+    var bottomSlump: [Double] = []
     /// Sand that has actually landed in the lower bulb (less than `progress` while some is still falling).
     var landedProgress: Double?
     /// 0 = sand shaken flat (just after a flip), 1 = crater and pile fully formed.
@@ -348,7 +351,7 @@ final class HourglassRenderer {
         let amount = frame.shapeAmount, neckY = self.neckY
         return Surface(
             y: { offset in
-                let height = crater.naturalHeight(atOffset: Double(offset))
+                let height = crater.naturalHeight(atOffset: Double(offset)) + P.slump(frame.topSlump, at: Double(offset))
                 return neckY - CGFloat(flat + (height - flat) * amount)
             },
             slideFrom: CGFloat(crater.rim), slideTo: CGFloat(max(0, -crater.tip / P.reposeSlope)), halfWidth: CGFloat(G.innerRadius(flat)))
@@ -364,7 +367,7 @@ final class HourglassRenderer {
         let wall = G.innerRadius(G.halfLength - flat)
         return Surface(
             y: { offset in
-                let height = pile.naturalHeight(atOffset: Double(offset))
+                let height = pile.naturalHeight(atOffset: Double(offset)) + P.slump(frame.bottomSlump, at: Double(offset))
                 return bottomY - CGFloat(flat + (height - flat) * amount)
             },
             slideFrom: 0, slideTo: CGFloat(pile.foot),

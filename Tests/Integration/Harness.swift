@@ -57,6 +57,42 @@ final class TimerHarness {
         }
     }
 
+    private var fingerOnScreen: CGPoint?
+
+    /// Presses on the middle of the top cap, like putting a finger on a real timer.
+    func pressTopCap() {
+        let windowPoint = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY - 177 * scale), to: nil)
+        fingerOnScreen = panel.convertPoint(toScreen: windowPoint)
+        sendMouse(.leftMouseDown, at: windowPoint)
+    }
+
+    /// Pushes the pressed top cap sideways by `points`, a little at a time.
+    func pushTopCap(by points: CGFloat, steps: Int = 12) {
+        guard let start = fingerOnScreen else { return }
+        for i in 1...steps {
+            let screen = CGPoint(x: start.x + points * CGFloat(i) / CGFloat(steps), y: start.y)
+            sendMouse(.leftMouseDragged, at: panel.convertPoint(fromScreen: screen))
+            run(1.0 / 60)
+        }
+        fingerOnScreen = CGPoint(x: start.x + points, y: start.y)
+    }
+
+    func releaseTopCap() {
+        guard let finger = fingerOnScreen else { return }
+        sendMouse(.leftMouseUp, at: panel.convertPoint(fromScreen: finger))
+        fingerOnScreen = nil
+    }
+
+    private func sendMouse(_ type: NSEvent.EventType, at point: NSPoint) {
+        let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        switch type {
+        case .leftMouseDown: view.mouseDown(with: event)
+        case .leftMouseDragged: view.mouseDragged(with: event)
+        default: view.mouseUp(with: event)
+        }
+    }
+
     /// Triggers a menu command, as if chosen from the right-click menu.
     func menu(_ action: String, tag: Int? = nil) {
         if let tag {

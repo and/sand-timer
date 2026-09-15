@@ -89,6 +89,57 @@ func timerViewTests() {
         }
     }
 
+    suite("Tilting by hand") {
+        test("pushing the top cap leans it; let go, it rocks back upright where it was") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            let standing = timer.center
+            timer.pressTopCap()
+            timer.pushTopCap(by: 70)
+            let leaning = timer.view.handTilt
+            expect(leaning > 0.05 && leaning < SandPhysics.tippingAngle, "leans to the right without toppling: \(leaning)")
+            expect(timer.isRunning, "still running while tilted")
+            timer.releaseTopCap()
+            timer.settle(minimum: 1.2)
+            expect(timer.view.handTilt == 0, "back upright")
+            expect(abs(timer.center.x - standing.x) < 1 && abs(timer.center.y - standing.y) < 1, "in the same place: \(timer.center) vs \(standing)")
+            expect(timer.isRunning)
+        }
+        test("pushed past its tipping point, it topples onto its side and pauses") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            timer.pressTopCap()
+            timer.pushTopCap(by: -220, steps: 20)
+            timer.settle(minimum: 0.8)
+            expect(timer.isPaused, "knocked over means paused")
+            expect(abs(timer.center.y - timer.screen.minY - 93 * timer.scale) < 1.5, "lying on its side on the ground")
+            timer.releaseTopCap()
+            timer.click(); timer.settle()
+            expect(timer.isRunning && timer.view.handTilt == 0, "a click stands it back up and resumes")
+        }
+        test("a press on the top cap without pushing is still an ordinary click") {
+            let timer = TimerHarness(minutes: 25)
+            timer.pressTopCap(); timer.releaseTopCap(); timer.settle()
+            expect(timer.isRunning, "starts it")
+        }
+        test("tilting makes the pile slump toward the low side, and it stays slumped") {
+            let timer = TimerHarness(minutes: 1, color: 0)
+            timer.click(); timer.settle(); timer.run(9)
+            let left = try require(timer.bottomSandHeight(atOffset: -45), "left edge of the pile")
+            let right = try require(timer.bottomSandHeight(atOffset: 45), "right edge of the pile")
+            timer.pressTopCap()
+            timer.pushTopCap(by: 120)
+            timer.run(1.0)
+            timer.releaseTopCap()
+            timer.settle(minimum: 1.2)
+            let leftAfter = try require(timer.bottomSandHeight(atOffset: -45), "left edge after")
+            let rightAfter = try require(timer.bottomSandHeight(atOffset: 45), "right edge after")
+            // Measured near the walls: the middle of a slope barely changes height as it flattens.
+            expect((rightAfter - leftAfter) - (right - left) > 3,
+                   "sand moved toward the side it was tipped to: before \(left)/\(right), after \(leftAfter)/\(rightAfter)")
+        }
+    }
+
     suite("Floating") {
         test("with Float Anywhere on it stays where it's let go; turning it off drops it to the ground") {
             UserDefaults.standard.set(false, forKey: "float")
