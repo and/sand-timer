@@ -105,6 +105,22 @@ func timerViewTests() {
             expect(abs(timer.center.x - standing.x) < 1 && abs(timer.center.y - standing.y) < 1, "in the same place: \(timer.center) vs \(standing)")
             expect(timer.isRunning)
         }
+        test("leaned one way, it can be swung back through upright and leaned the other way in the same press") {
+            let timer = TimerHarness(minutes: 25)
+            timer.click(); timer.settle()
+            let standing = timer.center
+            timer.pressTopCap()
+            timer.pushTopCap(by: -70)
+            expect(timer.view.handTilt < -0.05, "leans left: \(timer.view.handTilt)")
+            timer.pushTopCap(by: 70)
+            expect(abs(timer.view.handTilt) < 0.01, "back upright: \(timer.view.handTilt)")
+            timer.pushTopCap(by: 70)
+            expect(timer.view.handTilt > 0.05, "now leans right without letting go: \(timer.view.handTilt)")
+            timer.releaseTopCap()
+            timer.settle(minimum: 1.2)
+            expect(timer.view.handTilt == 0 && abs(timer.center.x - standing.x) < 1 && abs(timer.center.y - standing.y) < 1,
+                   "and still rocks back to where it stood: \(timer.center) vs \(standing)")
+        }
         test("pushed past its tipping point, it topples onto its side and pauses") {
             let timer = TimerHarness(minutes: 25)
             timer.click(); timer.settle()

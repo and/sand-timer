@@ -53,7 +53,7 @@ final class HourglassView: NSView {
     private var liftGrab: (handAngle: Double, startAngle: Double)?
     private var lean: Lean?
     /// Screen x where the top cap was grabbed, while the hand holds it.
-    private var topGrab: CGFloat?
+    private var topGrab: (x: CGFloat, upright: CGPoint)?
     private var rocking: Rocking?
     /// How each heap has slumped from being tilted (per-column height changes), kept until the sand is next leveled.
     private var topSlump = [Double](repeating: 0, count: SandPhysics.slumpColumns)
@@ -397,7 +397,7 @@ final class HourglassView: NSView {
         guard let window, flip == nil, tip == nil else { return }
         // Pressing on the top cap of a standing timer: push sideways to tilt it, like a finger on a real one.
         if canTiltByHand, isOnTopCap(convert(event.locationInWindow, from: nil)) {
-            topGrab = window.convertPoint(toScreen: event.locationInWindow).x
+            topGrab = (window.convertPoint(toScreen: event.locationInWindow).x, CGPoint(x: window.frame.midX, y: window.frame.midY))
             NSCursor.closedHand.set()
             return
         }
@@ -429,11 +429,14 @@ final class HourglassView: NSView {
             return
         }
         if let grab = topGrab, let window {
-            let push = window.convertPoint(toScreen: event.locationInWindow).x - grab
+            let push = window.convertPoint(toScreen: event.locationInWindow).x - grab.x
+            let side: Double = push < 0 ? -1 : 1
             if lean == nil {
                 guard abs(push) > 3 else { return }
-                startLean(side: push < 0 ? -1 : 1)
+                holdWindowStillForLeaning(uprightAt: grab.upright)
             }
+            // Swung back past upright to the other side: it now leans on the other corner.
+            if lean?.side != side { lean = Lean(angle: 0, side: side, pivot: pivot(side: side, uprightAt: grab.upright)) }
             guard var current = lean else { return }
             let angle = SandPhysics.tiltAngle(forTopShift: Double(push / Self.sizes[sizeIndex].scale))
             current.angle = (angle < 0) == (current.side < 0) ? angle : 0
@@ -555,17 +558,23 @@ final class HourglassView: NSView {
         return CGPoint(x: lean.pivot.x + CGFloat(offset.x) * scale, y: lean.pivot.y + CGFloat(offset.y) * scale)
     }
 
-    /// Starts leaning on the bottom corner on `side`, holding the window still over everything from standing to toppled.
-    private func startLean(side: Double) {
-        guard let window else { return }
+    /// The bottom corner on `side` of a timer standing with its center at `upright`.
+    private func pivot(side: Double, uprightAt upright: CGPoint) -> CGPoint {
+        let offset = SandPhysics.centerFromPivot(angle: 0, side: side)
         let scale = Self.sizes[sizeIndex].scale
-        let start = CGPoint(x: window.frame.midX, y: window.frame.midY)
-        let upright = SandPhysics.centerFromPivot(angle: 0, side: side)
-        let pivot = CGPoint(x: start.x - CGFloat(upright.x) * scale, y: start.y - CGFloat(upright.y) * scale)
-        lean = Lean(angle: 0, side: side, pivot: pivot)
-        let fallen = SandPhysics.centerFromPivot(angle: side * .pi / 2, side: side)
-        let end = keptCenter(CGPoint(x: pivot.x + CGFloat(fallen.x) * scale, y: pivot.y + CGFloat(fallen.y) * scale), angle: side * .pi / 2)
-        holdWindowStill(from: start, to: end)
+        return CGPoint(x: upright.x - CGFloat(offset.x) * scale, y: upright.y - CGFloat(offset.y) * scale)
+    }
+
+    /// Holds the window still over everything from standing to toppled either way, so the timer can be leaned to one
+    /// side, swung back, and leaned to the other without the window moving.
+    private func holdWindowStillForLeaning(uprightAt upright: CGPoint) {
+        let scale = Self.sizes[sizeIndex].scale
+        let fallen = [-1.0, 1.0].map { side -> CGPoint in
+            let corner = pivot(side: side, uprightAt: upright)
+            let offset = SandPhysics.centerFromPivot(angle: side * .pi / 2, side: side)
+            return keptCenter(CGPoint(x: corner.x + CGFloat(offset.x) * scale, y: corner.y + CGFloat(offset.y) * scale), angle: side * .pi / 2)
+        }
+        holdWindowStill(from: fallen[0], to: fallen[1], alsoCovering: upright)
     }
 
     /// Past the tipping point: it topples onto its side from where it leans, and pauses like being knocked over.
@@ -680,13 +689,16 @@ final class HourglassView: NSView {
 
     /// One still window big enough for the timer at any angle anywhere between two centers, so a movement between them
     /// is drawn inside it without the window moving.
-    private func holdWindowStill(from start: CGPoint, to end: CGPoint) {
+    private func holdWindowStill(from start: CGPoint, to end: CGPoint, alsoCovering extra: CGPoint? = nil) {
         guard let window else { return }
         let content = Self.contentSize(sizeIndex: sizeIndex)
         let reach = ceil(hypot(content.width, content.height) / 2) + 2
+        let points = [start, end] + (extra.map { [$0] } ?? [])
+        let minX = points.map(\.x).min()!, maxX = points.map(\.x).max()!
+        let minY = points.map(\.y).min()!, maxY = points.map(\.y).max()!
         expansion = nil
-        window.setFrame(NSRect(x: floor(min(start.x, end.x) - reach), y: floor(min(start.y, end.y) - reach),
-                               width: ceil(abs(end.x - start.x) + 2 * reach), height: ceil(abs(end.y - start.y) + 2 * reach)),
+        window.setFrame(NSRect(x: floor(minX - reach), y: floor(minY - reach),
+                               width: ceil(maxX - minX + 2 * reach), height: ceil(maxY - minY + 2 * reach)),
                         display: false)
     }
 
