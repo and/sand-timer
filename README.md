@@ -27,6 +27,9 @@ desktop, sitting above whatever you are working in.
 - **Click** it to start. Click again to pause — it tips onto its side — and once more
   to carry on.
 - **Drag** it wherever you like. Let go and it drops to the bottom of the screen.
+- **Push the top** sideways to tilt it, the way you would nudge a real one. Let go and it
+  rocks back upright; push too far and it topples over and pauses. Lift a toppled timer
+  back up by its top, or pull the top upward to pick it up.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
   25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), the colour of the sand, the style of the base, how big it is,
   whether it makes sounds, whether it starts when you log in, and whether it hides in
