@@ -32,7 +32,7 @@ desktop, sitting above whatever you are working in.
   back up by its top, or pull the top upward to pick it up.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
   25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), the colour of the sand, the style of the base, how big it is,
-  whether it makes sounds, whether it starts when you log in, and whether it hides in
+  whether it makes sounds (including an optional gentle chime each minute), whether it starts when you log in, and whether it hides in
   the menu bar.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
