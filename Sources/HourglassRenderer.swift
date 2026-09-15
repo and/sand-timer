@@ -371,13 +371,10 @@ final class HourglassRenderer {
         if let funnel {
             let end = neckY + funnel.length
             path.line(to: CGPoint(x: cx + funnel.bore, y: closingY))
-            path.curve(to: CGPoint(x: cx + funnel.exit / 2, y: end),
-                       controlPoint1: CGPoint(x: cx + funnel.bore, y: neckY + funnel.length * 0.35),
-                       controlPoint2: CGPoint(x: cx + funnel.exit / 2, y: neckY + funnel.length * 0.6))
+            // A short, straight taper: sand runs through the neck rather than bulging out of it like a drip.
+            path.line(to: CGPoint(x: cx + funnel.exit / 2, y: end))
             path.line(to: CGPoint(x: cx - funnel.exit / 2, y: end))
-            path.curve(to: CGPoint(x: cx - funnel.bore, y: closingY),
-                       controlPoint1: CGPoint(x: cx - funnel.exit / 2, y: neckY + funnel.length * 0.6),
-                       controlPoint2: CGPoint(x: cx - funnel.bore, y: neckY + funnel.length * 0.35))
+            path.line(to: CGPoint(x: cx - funnel.bore, y: closingY))
         }
         path.close()
         return path
@@ -453,19 +450,17 @@ final class HourglassRenderer {
             fillGrains()
         }
 
-        // The stream: as wide as the opening where it leaves the neck, it loosens as the grains speed up and spread
-        // apart. The core narrows and fades into a spray of grains, looking lighter than packed sand for the air between
-        // them, and the flow flickers unevenly. It thins once the top has run dry.
-        let flicker = 1 + 0.07 * CGFloat(sin(time * 17.3) + 0.7 * sin(time * 29.7 + 1.1) + 0.5 * sin(time * 7.9 + 2.3))
-        let stutter = 1 - 0.25 * CGFloat(max(0, sin(time * 2.3) * sin(time * 3.1)))
-        let opening = (stream.tail > 0 ? 1.3 : 2.2) * neckScale * flicker * stutter
+        // The stream: a thin, smooth, steady thread as wide as the opening, with only a faint shimmer and fine grain
+        // texture. (Pulsing, spray and splashes make dry sand look wet.) It thins once the top has run dry.
+        let shimmer = 1 + 0.02 * CGFloat(sin(time * 17.3) + 0.5 * sin(time * 29.7 + 1.1))
+        let opening = (stream.tail > 0 ? 1.3 : 2.2) * neckScale * shimmer
         let funnelEnd = neckY + CGFloat(P.funnelLength(neckScale: Double(neckScale)))
         let coreTop = feeding ? max(streamTop, funnelEnd - 0.5) : streamTop
         if streamEnd - coreTop > 1 {
             ctx.saveGState()
             ctx.concatenate(CGAffineTransform(a: 1, b: 0, c: lean, d: 1, tx: -lean * neckY, ty: 0))
-            let wobble = CGFloat(sin(time * 23) * 0.25 + sin(time * 31) * frame.agitation * 1.5)
-            let loose = theme.sand.blended(withFraction: 0.15, of: .white) ?? theme.sand
+            let wobble = CGFloat(sin(time * 23) * 0.1 + sin(time * 31) * frame.agitation * 1.5)
+            let loose = theme.sand.blended(withFraction: 0.06, of: .white) ?? theme.sand
             let drop = max(1, landing - neckY)
             func fraction(_ y: CGFloat) -> Double { Double((y - neckY) / drop) }
             let slices = 24
@@ -477,47 +472,38 @@ final class HourglassRenderer {
                 ctx.setFillColor(loose.withAlphaComponent(CGFloat(slice.coreOpacity)).cgColor)
                 ctx.fill(CGRect(x: cx - width / 2 + wobble, y: y0, width: width, height: y1 - y0 + 0.3))
             }
+            // Fine grain texture moving down the thread, in tones close to the stream's own so nothing looks clumpy.
             let length = Double(landing - (neckY - 3))
-            for i in 0..<max(1, Int(length / 3 * Double(neckScale))) {
+            var lighter: [CGRect] = [], darker: [CGRect] = []
+            for i in 0..<max(1, Int(length / 6 * Double(neckScale))) {
                 let speed = 170 + Self.hash(i, 5) * 60
                 let y = neckY - 3 + CGFloat((time * speed + Self.hash(i, 6) * length).truncatingRemainder(dividingBy: length))
                 guard y >= coreTop && y <= streamEnd else { continue }
-                // Each grain drifts further from the center line the further it has fallen.
                 let stray = CGFloat(Self.hash(i, 20) * 2 - 1) * opening * CGFloat(P.streamSlice(at: fraction(y)).spread) / 2
-                let x = cx + stray + CGFloat(sin(time * 11 + Double(i))) * 0.4 * neckScale + wobble
-                grain(i, x, y, CGFloat(1.2 + 0.6 * Self.hash(i, 21)))
+                let size = CGFloat(0.9 + 0.3 * Self.hash(i, 21))
+                let rect = CGRect(x: cx + stray + wobble - size / 2, y: y - size / 2, width: size, height: size)
+                if i % 2 == 0 { lighter.append(rect) } else { darker.append(rect) }
             }
-            fillGrains()
+            ctx.setFillColor((theme.sand.blended(withFraction: 0.25, of: .white) ?? theme.sand).withAlphaComponent(0.7).cgColor)
+            ctx.fill(lighter)
+            ctx.setFillColor((theme.sand.blended(withFraction: 0.15, of: .black) ?? theme.sand).withAlphaComponent(0.6).cgColor)
+            ctx.fill(darker)
             ctx.restoreGState()
         }
 
-        // Where the stream lands it digs a small dip in the pile and kicks grains up around it.
-        if hitsPile {
-            let dip = max(3, opening * 2.2)
-            ctx.setFillColor((theme.sand.blended(withFraction: 0.35, of: .black) ?? theme.sand).withAlphaComponent(0.45).cgColor)
-            ctx.fillEllipse(in: CGRect(x: cx + landingOffset - dip / 2, y: landing - 0.2, width: dip, height: 1.6))
-            for i in 0..<6 {
-                let period = 0.25 + Self.hash(i, 22) * 0.2
-                let u = CGFloat(((time + Self.hash(i, 23) * period) / period).truncatingRemainder(dividingBy: 1))
-                let side: CGFloat = Self.hash(i, 24) < 0.5 ? -1 : 1
-                let x = cx + landingOffset + side * (1 + CGFloat(Self.hash(i, 25)) * 3) * u * (1 + neckScale)
-                grain(i, x, landing - sin(u * .pi) * CGFloat(1.5 + Self.hash(i, 26) * 2.5), 1.2)
-            }
-            fillGrains()
-        }
-
-        // Grains landing on the pile and rolling down its slopes, speeding up as they go.
+        // A few grains trickling down the pile's slopes from where the stream lands: no splash, no bouncing.
         if hitsPile, let bottom {
             let reach = max(0, bottom.slideTo - abs(landingOffset))
-            for i in 0..<18 {
-                let period = 0.9 + Self.hash(i, 7) * 1.1
+            var rolling: [CGRect] = []
+            for i in 0..<8 {
+                let period = 1.2 + Self.hash(i, 7) * 1.2
                 let u = CGFloat(((time + Self.hash(i, 8) * period) / period).truncatingRemainder(dividingBy: 1))
                 let side: CGFloat = Self.hash(i, 9) < 0.5 ? -1 : 1
-                let offset = landingOffset + side * reach * CGFloat(0.35 + 0.6 * Self.hash(i, 10)) * u * u
-                let bounce = sin(u * .pi * 3) * (1 - u) * 1.8
-                grain(i, cx + offset, bottom.y(offset) - 0.8 - abs(bounce), 1.7)
+                let offset = landingOffset + side * reach * CGFloat(0.3 + 0.5 * Self.hash(i, 10)) * u * u
+                rolling.append(CGRect(x: cx + offset - 0.6, y: bottom.y(offset) - 1.2, width: 1.2, height: 1.2))
             }
-            fillGrains()
+            ctx.setFillColor((theme.sand.blended(withFraction: 0.15, of: .black) ?? theme.sand).withAlphaComponent(0.7).cgColor)
+            ctx.fill(rolling)
         }
     }
 

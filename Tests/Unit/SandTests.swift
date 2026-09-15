@@ -130,7 +130,7 @@ func sandTests() {
             let old = P.topCrater(progress: 0.45, settledProgress: 0)
             expect(draining.level - draining.tip < old.level - old.tip, "shallower than one grown since the timer started")
         }
-        test("the stream leaves the neck packed and loosens as it falls") {
+        test("the stream stays a steady thread, only faintly looser low down") {
             let top = P.streamSlice(at: 0), bottom = P.streamSlice(at: 1)
             expect(top.coreWidth == 1, "as wide as the opening at the neck")
             expect(bottom.coreWidth < top.coreWidth && bottom.coreOpacity < top.coreOpacity && bottom.spread > top.spread)
@@ -141,6 +141,8 @@ func sandTests() {
                 last = slice
             }
             expect(P.funnelLength(neckScale: 2.6) > P.funnelLength(neckScale: 1), "a wider opening converges over a longer distance")
+            expect(bottom.coreWidth >= 0.85 && bottom.coreOpacity >= 0.8 && bottom.spread <= 0.3,
+                   "no visible spray: dry sand falls as a thin, even thread")
         }
         test("the stream falls under gravity") {
             expect(relNear(P.fallDistance(after: 0.25), 150))

@@ -46,11 +46,12 @@ enum SandPhysics {
 
     static func streamSlice(at fraction: Double) -> StreamSlice {
         let f = min(max(fraction, 0), 1)
-        return StreamSlice(coreWidth: 1 - 0.5 * f, coreOpacity: 0.95 - 0.65 * f, spread: 0.3 + 1.2 * f)
+        // In a real hourglass the loosening is barely visible: the stream reads as a thin, steady thread.
+        return StreamSlice(coreWidth: 1 - 0.1 * f, coreOpacity: 0.95 - 0.1 * f, spread: 0.1 + 0.15 * f)
     }
 
     /// Distance (drawing units) below the neck over which the sand in the opening converges into the stream.
-    static func funnelLength(neckScale: Double) -> Double { 5 + 3 * neckScale }
+    static func funnelLength(neckScale: Double) -> Double { 2 + 1.5 * neckScale }
 
     static func fallDistance(after seconds: Double) -> Double {
         seconds <= 0 ? 0 : 0.5 * gravity * seconds * seconds
