@@ -280,6 +280,29 @@ func timerViewTests() {
     }
 
     suite("Menu commands") {
+        test("the sound settings sit together in their own section, between separators") {
+            let items = TimerHarness(minutes: 25).view.makeMenu().items
+            let start = try require(items.firstIndex { $0.title == "Flip, Fall & Finish Sounds" }, "the first sound setting")
+            let end = try require(items[start...].firstIndex { $0.isSeparatorItem }, "the section ends")
+            expect(items[start - 1].isSeparatorItem, "a separator above it")
+            let section = items[start..<end].map(\.title)
+            expect(section == ["Flip, Fall & Finish Sounds", "Sand Sounds", "Minute Chimes"], "got \(section)")
+        }
+        test("with Minute Chimes on, a chime plays as each minute passes, and none when it's off") {
+            let timer = TimerHarness(minutes: 25)
+            let wasOn = timer.view.minuteChimesOn
+            defer { if timer.view.minuteChimesOn != wasOn { timer.menu("minuteChimesToggled") } }
+            if wasOn { timer.menu("minuteChimesToggled") }
+            timer.view.setPreview(progress: 59.4 / 1500, running: true)
+            timer.run(1.2)
+            expect(timer.view.minuteChimesPlayed == 0, "silent while off")
+            timer.menu("minuteChimesToggled")
+            timer.view.setPreview(progress: 119.4 / 1500, running: true)
+            timer.run(1.2)
+            expect(timer.view.minuteChimesPlayed == 1, "one chime at 2 minutes: \(timer.view.minuteChimesPlayed)")
+            timer.run(1.0)
+            expect(timer.view.minuteChimesPlayed == 1, "and no more until the next minute")
+        }
         test("changing size keeps the timer on the ground") {
             let timer = TimerHarness()
             for size in HourglassView.sizes.indices {

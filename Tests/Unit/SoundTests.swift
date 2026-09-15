@@ -9,7 +9,9 @@ func soundTests() {
     let shake = Sounds.synthesizeShake(seconds: 2)
     let fall = Sounds.synthesizeFall()
     let flip = Sounds.synthesizeFlip(landingAt: 0.58)
-    let all: [(String, [Float])] = [("pour on glass", pourOnGlass), ("pour on sand", pourOnSand), ("shake", shake), ("fall", fall), ("flip", flip)]
+    let chime = Sounds.synthesizeMinuteChime()
+    let all: [(String, [Float])] = [("pour on glass", pourOnGlass), ("pour on sand", pourOnSand), ("shake", shake), ("fall", fall), ("flip", flip),
+                                    ("minute chime", chime)]
 
     suite("Sounds") {
         test("every sound is audible and never distorts") {
@@ -23,6 +25,10 @@ func soundTests() {
             expect(near(Double(pourOnGlass.count) / rate, 4, 0.01) && near(Double(shake.count) / rate, 2, 0.01))
             expect(near(Double(fall.count) / rate, 0.5, 0.01))
             expect(near(Double(flip.count) / rate, 0.93, 0.01), "the flip thud lands as the turn ends")
+        }
+        test("the minute chime is gentle: quieter than a fall, and fades out to silence") {
+            expect(rms(chime) < rms(fall), "chime \(rms(chime)) vs fall \(rms(fall))")
+            expect(abs(chime.first ?? 1) < 0.01 && chime.suffix(441).map(abs).max() ?? 1 < 0.01, "no click at either end")
         }
         test("looping sounds repeat without an audible seam") {
             for (name, loop) in [("pour on glass", pourOnGlass), ("pour on sand", pourOnSand), ("shake", shake)] {

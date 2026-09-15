@@ -5,6 +5,14 @@ private func at(_ seconds: Double) -> Date { t0.addingTimeInterval(seconds) }
 
 func clockTests() {
     suite("Clock") {
+        test("a minute chime is due each time a whole minute of sand runs, but not for jumps or at the end") {
+            let clock = SandClock(duration: 180)
+            expect(clock.minuteChimeDue(from: 59.98, to: 60.01) && clock.minuteChimeDue(from: 119.9, to: 120.2), "at 1 and 2 minutes")
+            expect(!clock.minuteChimeDue(from: 60.01, to: 60.04) && !clock.minuteChimeDue(from: 30, to: 30.03), "not in between")
+            expect(!clock.minuteChimeDue(from: 40, to: 140), "not when a flip jumps the sand past a minute")
+            expect(!clock.minuteChimeDue(from: 179.98, to: 180), "not at the end, which has its own chime")
+            expect(!clock.minuteChimeDue(from: 60.01, to: 59.98), "not going backwards")
+        }
         test("a new timer waits with all its sand at the bottom") {
             let clock = SandClock(duration: 100)
             expect(clock.progress(at: t0) == 1)

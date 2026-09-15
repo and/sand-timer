@@ -52,6 +52,13 @@ enum Sounds {
 
     /// The timer landing on a desk: a hollow plastic knock from the base, a faint rattle of the glass, and grains
     /// resettling inside.
+    /// A soft, short bell tone for each minute that passes: quiet enough to notice without being startled.
+    static let minuteChime: NSSound? = {
+        let sound = NSSound(data: wav(samples: synthesizeMinuteChime()))
+        sound?.volume = 0.5
+        return sound
+    }()
+
     static let fall: NSSound? = NSSound(data: wav(samples: synthesizeFall()))
 
     /// Impacts slower than this (m/s) are too gentle to hear.
@@ -108,6 +115,19 @@ enum Sounds {
             }
         }
         return samples
+    }
+
+    static func synthesizeMinuteChime(sampleRate: Double = 44_100) -> [Float] {
+        let count = Int(1.2 * sampleRate)
+        return (0..<count).map { i in
+            let t = Double(i) / sampleRate
+            // A struck small bell: a pure fundamental with a few quieter, faster-fading partials and a soft attack.
+            let attack = min(1, t / 0.004, (1.2 - t) / 0.1)
+            let tone = sin(2 * .pi * 880 * t) * exp(-t / 0.35)
+                + sin(2 * .pi * 1760 * t) * 0.25 * exp(-t / 0.18)
+                + sin(2 * .pi * 2640 * t) * 0.08 * exp(-t / 0.08)
+            return Float(tone * attack * 0.25)
+        }
     }
 
     static func synthesizeFall(sampleRate: Double = 44_100) -> [Float] {

@@ -36,6 +36,11 @@ final class HourglassView: NSView {
     private var sizeIndex: Int
     private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
     private var grainSoundOn = UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true
+    private(set) var minuteChimesOn = UserDefaults.standard.bool(forKey: "minuteChimes")
+    /// Sand-time elapsed at the last tick while running, to hear each whole minute go by.
+    private var lastElapsed: TimeInterval?
+    /// How many minute chimes have played; tests listen here.
+    private(set) var minuteChimesPlayed = 0
     /// "Float Anywhere": the timer stays wherever it's let go instead of falling to the bottom of the screen.
     private(set) var floats = UserDefaults.standard.bool(forKey: "float")
     private var flip: (start: Date, from: SandClock)?
@@ -164,6 +169,12 @@ final class HourglassView: NSView {
             NSSound(named: "Glass")?.play()
         }
         wasRunning = running
+        let elapsed = running ? clock.progress(at: now) * clock.duration : nil
+        if let elapsed, let lastElapsed, clock.minuteChimeDue(from: lastElapsed, to: elapsed), minuteChimesOn {
+            minuteChimesPlayed += 1
+            Sounds.minuteChime?.stop(); Sounds.minuteChime?.play()
+        }
+        lastElapsed = elapsed
 
         if let flip, let window {
             // A turning timer is wider and taller than a standing one: walls push it back rather than letting it through.
@@ -739,7 +750,7 @@ final class HourglassView: NSView {
 
     // MARK: Menu
 
-    private func makeMenu() -> NSMenu {
+    func makeMenu() -> NSMenu {
         let now = Date()
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -762,12 +773,17 @@ final class HourglassView: NSView {
         menu.addItem(submenu("Color", Theme.colors.enumerated().map { ($1.name, $0, $0 == themeIndex) }, #selector(themePicked)))
         menu.addItem(submenu("Base", Theme.Base.allCases.map { ($0.name, $0.rawValue, $0 == base) }, #selector(basePicked)))
         menu.addItem(submenu("Size", Self.sizes.enumerated().map { ($1.name, $0, $0 == sizeIndex) }, #selector(sizePicked)))
+        menu.addItem(.separator())
+
         let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
         sound.state = soundOn ? .on : .off
         menu.addItem(sound)
         let grainSound = item("Sand Sounds", #selector(grainSoundToggled))
         grainSound.state = grainSoundOn ? .on : .off
         menu.addItem(grainSound)
+        let chimes = item("Minute Chimes", #selector(minuteChimesToggled))
+        chimes.state = minuteChimesOn ? .on : .off
+        menu.addItem(chimes)
         menu.addItem(.separator())
 
         let login = item("Start at Login", #selector(loginToggled))
@@ -911,6 +927,11 @@ final class HourglassView: NSView {
     @objc private func soundToggled() {
         soundOn.toggle()
         UserDefaults.standard.set(soundOn, forKey: "soundOn")
+    }
+
+    @objc private func minuteChimesToggled() {
+        minuteChimesOn.toggle()
+        UserDefaults.standard.set(minuteChimesOn, forKey: "minuteChimes")
     }
 
     @objc private func grainSoundToggled() {

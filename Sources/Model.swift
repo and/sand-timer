@@ -32,6 +32,12 @@ struct SandClock {
 
     func isRunning(at now: Date) -> Bool { runningSince != nil && progress(at: now) < 1 }
 
+    /// Whether a gentle minute chime is due as the sand moves from `previous` to `elapsed` seconds: a whole minute
+    /// passed in the ordinary run of time. Not when time jumps (a flip or restart), and not at the end, which has its own chime.
+    func minuteChimeDue(from previous: TimeInterval, to elapsed: TimeInterval) -> Bool {
+        elapsed > previous && elapsed - previous < 1 && elapsed < duration - 0.5 && floor(elapsed / 60) > floor(previous / 60)
+    }
+
     func isPaused(at now: Date) -> Bool { runningSince == nil && progress(at: now) < 1 }
 
     func remaining(at now: Date) -> TimeInterval { (1 - progress(at: now)) * duration }
