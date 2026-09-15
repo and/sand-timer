@@ -4,7 +4,8 @@ import ServiceManagement
 
 /// The overlay's content: draws the timer, flips it on click, and offers settings on right-click.
 final class HourglassView: NSView {
-    static let durations = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60]
+    /// Includes 6 and 12 minutes: 0.1 and 0.2 of an hour, the time blocks many professionals bill in.
+    static let durations = [1, 2, 3, 5, 6, 10, 12, 15, 20, 25, 30, 45, 60]
     /// 25 minutes is the classic Pomodoro work session.
     static let pomodoroMinutes = 25
     /// A new install starts ready for a Pomodoro session.

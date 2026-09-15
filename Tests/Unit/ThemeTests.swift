@@ -27,6 +27,13 @@ func themeTests() {
             view.setPreview(progress: 0, running: true)
             expect(view.menuBarTime == "25:00", "got \(view.menuBarTime ?? "nil")")
         }
+        test("durations include 6 and 12 minutes for 0.1- and 0.2-hour billing blocks, in order") {
+            expect(HourglassView.durations.contains(6) && HourglassView.durations.contains(12))
+            expect(HourglassView.durations == HourglassView.durations.sorted() && Set(HourglassView.durations).count == HourglassView.durations.count)
+            let view = HourglassView(minutes: 12, themeIndex: 0, sizeIndex: 1)
+            view.setPreview(progress: 0, running: true)
+            expect(view.menuBarTime == "12:00", "a saved 12-minute setting is kept, got \(view.menuBarTime ?? "nil")")
+        }
         test("an out-of-range color falls back to the first one") {
             expect(Theme(color: 99, base: .black).name == Theme(color: 0, base: .black).name)
         }

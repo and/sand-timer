@@ -28,7 +28,7 @@ desktop, sitting above whatever you are working in.
   to carry on.
 - **Drag** it wherever you like. Let go and it drops to the bottom of the screen.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
-  25-minute 🍅 Pomodoro), the colour of the sand, the style of the base, how big it is,
+  25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), the colour of the sand, the style of the base, how big it is,
   whether it makes sounds, whether it starts when you log in, and whether it hides in
   the menu bar.
 
