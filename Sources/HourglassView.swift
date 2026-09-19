@@ -35,7 +35,11 @@ final class HourglassView: NSView {
     private var base: Theme.Base
     private var sizeIndex: Int
     private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
-    private var grainSoundOn = UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true
+    /// How loud the falling and shaken sand is: 0 is off, 1 the usual level. Older settings only said on or off.
+    private(set) var grainVolume = UserDefaults.standard.object(forKey: "grainVolume") as? Double
+        ?? ((UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true) ? 1 : 0)
+    /// The volumes offered in the menu, quietest first.
+    static let grainVolumes: [(name: String, volume: Double)] = [("Off", 0), ("Quiet", 0.45), ("Normal", 1), ("Loud", 1.8)]
     private(set) var minuteChimesOn = UserDefaults.standard.bool(forKey: "minuteChimes")
     /// Sand-time elapsed at the last tick while running, to hear each whole minute go by.
     private var lastElapsed: TimeInterval?
@@ -283,16 +287,17 @@ final class HourglassView: NSView {
         let visible = window?.isVisible == true
         // Shaken sand rattles, louder the more it's stirred up; it fades with the sand as each jolt settles.
         if let rattle = Sounds.shake {
-            let level = visible && grainSoundOn ? agitation.level : 0
-            if level > 0.02 {
-                rattle.volume = Float(min(0.5, level * 0.55))  // a light rattle, not a shaker
+            let level = visible ? min(0.5, agitation.level * 0.55) * grainVolume : 0  // a light rattle, not a shaker
+            if level > 0.01 {
+                rattle.volume = Float(min(1, level))
                 if !rattle.isPlaying { rattle.play() }
             } else if rattle.isPlaying {
                 rattle.stop()
             }
         }
-        let pouring = visible && grainSoundOn && stream.map { $0.front > 150 && $0.tail < 150 } == true
-        Sounds.setPour(active: pouring, glassiness: pouring ? SandPhysics.pourGlassiness(progress: clock.progress(at: now)) : 0)
+        let pouring = visible && grainVolume > 0 && stream.map { $0.front > 150 && $0.tail < 150 } == true
+        Sounds.setPour(active: pouring, glassiness: pouring ? SandPhysics.pourGlassiness(progress: clock.progress(at: now)) : 0,
+                       volume: grainVolume)
 
         let moving = flip != nil || tip != nil || lean != nil || !streamLean.isSettled || !agitation.isSettled
         let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
@@ -778,9 +783,8 @@ final class HourglassView: NSView {
         let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
         sound.state = soundOn ? .on : .off
         menu.addItem(sound)
-        let grainSound = item("Sand Sounds", #selector(grainSoundToggled))
-        grainSound.state = grainSoundOn ? .on : .off
-        menu.addItem(grainSound)
+        let grains = Self.grainVolumes.enumerated().map { ($1.name, $0, $1.volume == grainVolume) }
+        menu.addItem(submenu("Sand Sounds", grains, #selector(grainVolumePicked)))
         let chimes = item("Minute Chimes", #selector(minuteChimesToggled))
         chimes.state = minuteChimesOn ? .on : .off
         menu.addItem(chimes)
@@ -934,9 +938,10 @@ final class HourglassView: NSView {
         UserDefaults.standard.set(minuteChimesOn, forKey: "minuteChimes")
     }
 
-    @objc private func grainSoundToggled() {
-        grainSoundOn.toggle()
-        UserDefaults.standard.set(grainSoundOn, forKey: "grainSoundOn")
+    @objc private func grainVolumePicked(_ sender: NSMenuItem) {
+        guard Self.grainVolumes.indices.contains(sender.tag) else { return }
+        grainVolume = Self.grainVolumes[sender.tag].volume
+        UserDefaults.standard.set(grainVolume, forKey: "grainVolume")
     }
 
     @objc private func durationPicked(_ sender: NSMenuItem) {

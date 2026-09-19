@@ -23,17 +23,25 @@ enum Sounds {
 
     /// Starts, stops and mixes the falling-sand loops. `glassiness` is how much of the sound is grains hitting glass
     /// (1 = the bottom is bare) rather than sand landing on sand, which is softer.
-    static func setPour(active: Bool, glassiness: Double) {
+    static func setPour(active: Bool, glassiness: Double, volume: Double = 1) {
         guard let glass = pourOnGlass, let sand = pourOnSand else { return }
-        guard active else {
+        let levels = pourVolumes(glassiness: glassiness, volume: volume)
+        guard active, levels.glass + levels.sand > 0 else {
             if glass.isPlaying { glass.stop() }
             if sand.isPlaying { sand.stop() }
             return
         }
-        glass.volume = Float(glassiness)
-        sand.volume = Float((1 - glassiness) * 0.7)
+        glass.volume = levels.glass
+        sand.volume = levels.sand
         if !glass.isPlaying { glass.play() }
         if !sand.isPlaying { sand.play() }
+    }
+
+    /// How loud each falling-sand loop plays: the glass-and-sand mix, scaled by the chosen sand volume and kept
+    /// within what a sound can play.
+    static func pourVolumes(glassiness: Double, volume: Double) -> (glass: Float, sand: Float) {
+        let level = max(0, volume)
+        return (Float(min(1, glassiness * level)), Float(min(1, (1 - glassiness) * 0.7 * level)))
     }
 
     private static func looping(_ samples: [Float]) -> NSSound? {

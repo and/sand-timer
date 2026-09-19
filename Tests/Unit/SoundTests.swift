@@ -26,6 +26,18 @@ func soundTests() {
             expect(near(Double(fall.count) / rate, 0.5, 0.01))
             expect(near(Double(flip.count) / rate, 0.93, 0.01), "the flip thud lands as the turn ends")
         }
+        test("the sand volume setting makes pouring louder and quieter, and off is silent") {
+            let normal = Sounds.pourVolumes(glassiness: 0.5, volume: 1)
+            let quiet = Sounds.pourVolumes(glassiness: 0.5, volume: 0.45)
+            let loud = Sounds.pourVolumes(glassiness: 0.5, volume: 1.8)
+            expect(quiet.glass < normal.glass && normal.glass < loud.glass, "glass: \(quiet.glass) \(normal.glass) \(loud.glass)")
+            expect(quiet.sand < normal.sand && normal.sand < loud.sand, "sand: \(quiet.sand) \(normal.sand) \(loud.sand)")
+            expect(max(loud.glass, loud.sand) <= 1, "never asks for more than full volume")
+            let off = Sounds.pourVolumes(glassiness: 0.5, volume: 0)
+            expect(off.glass == 0 && off.sand == 0, "off is silent")
+            expect(HourglassView.grainVolumes.map(\.volume) == HourglassView.grainVolumes.map(\.volume).sorted(), "the menu lists them quietest first")
+            expect(HourglassView.grainVolumes.first?.volume == 0 && HourglassView.grainVolumes.contains { $0.volume == 1 }, "Off and the usual level are both offered")
+        }
         test("the minute chime is gentle: quieter than a fall, and fades out to silence") {
             expect(rms(chime) < rms(fall), "chime \(rms(chime)) vs fall \(rms(fall))")
             expect(abs(chime.first ?? 1) < 0.01 && chime.suffix(441).map(abs).max() ?? 1 < 0.01, "no click at either end")

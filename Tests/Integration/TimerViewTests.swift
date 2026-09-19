@@ -287,6 +287,22 @@ func timerViewTests() {
             expect(items[start - 1].isSeparatorItem, "a separator above it")
             let section = items[start..<end].map(\.title)
             expect(section == ["Flip, Fall & Finish Sounds", "Sand Sounds", "Minute Chimes"], "got \(section)")
+            let volumes = try require(items[start..<end].first { $0.title == "Sand Sounds" }?.submenu?.items, "sand volumes")
+            expect(volumes.map(\.title) == ["Off", "Quiet", "Normal", "Loud"], "got \(volumes.map(\.title))")
+            expect(volumes.filter { $0.state == .on }.count == 1, "exactly one is ticked")
+        }
+        test("picking a sand volume changes how loud the sand is, and it can be turned off") {
+            let timer = TimerHarness(minutes: 25)
+            let wasVolume = timer.view.grainVolume
+            defer { timer.menu("grainVolumePicked", tag: HourglassView.grainVolumes.firstIndex { $0.volume == wasVolume } ?? 2) }
+            timer.menu("grainVolumePicked", tag: 1)
+            let quiet = timer.view.grainVolume
+            timer.menu("grainVolumePicked", tag: 3)
+            expect(quiet > 0 && timer.view.grainVolume > quiet, "Loud is louder than Quiet: \(quiet) then \(timer.view.grainVolume)")
+            timer.menu("grainVolumePicked", tag: 0)
+            expect(timer.view.grainVolume == 0, "Off silences it")
+            timer.click(); timer.settle(); timer.run(0.5)
+            expect(Sounds.pourOnGlass?.isPlaying != true && Sounds.pourOnSand?.isPlaying != true, "no pouring sound while off")
         }
         test("with Minute Chimes on, a chime plays as each minute passes, and none when it's off") {
             let timer = TimerHarness(minutes: 25)
