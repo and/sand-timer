@@ -340,6 +340,48 @@ func timerViewTests() {
         }
     }
 
+    suite("Statistics") {
+        test("the menu offers the statistics window") {
+            let items = TimerHarness().view.makeMenu().items.map(\.title)
+            expect(items.contains("Statistics…"), "got \(items)")
+        }
+        test("running the timer adds to today's record, and it is written out when the sand stops") {
+            let timer = TimerHarness()
+            let before = timer.view.statistics.log.buckets(.daily, at: Date()).last?.seconds ?? 0
+            timer.click(); timer.run(2.2)
+            timer.menu("pauseClicked"); timer.run(0.4)
+            let today = try require(timer.view.statistics.log.buckets(.daily, at: Date()).last, "today's bar")
+            expect(today.title == "Today")
+            let ran = today.seconds - before
+            expect(ran > 1.5 && ran < 3.5, "about two seconds of sand ran, got \(ran)")
+            expect(SandLog.load().allTime.seconds >= today.seconds - 0.01, "saved once it stopped: \(SandLog.load().allTime.seconds)")
+            timer.run(1.0)
+            expect(timer.view.statistics.log.buckets(.daily, at: Date()).last?.seconds == today.seconds, "paused sand adds nothing")
+        }
+        test("the statistics window opens, draws today's bar in the sand's color, and closes") {
+            let timer = TimerHarness(color: 1)  // teal, so the bars can't be mistaken for anything else on screen
+            timer.click(); timer.run(1.5)
+            timer.menu("statsClicked"); timer.run(0.4)
+            let window = try require(StatsPanel.open, "the statistics window")
+            defer { window.close() }
+            let view = try require(window.contentView, "its content")
+            let rep = try require(view.bitmapImageRepForCachingDisplay(in: view.bounds), "a bitmap to draw into")
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let sand = try require(Theme(color: 1, base: .black).sand.usingColorSpace(.sRGB), "the sand color")
+            // Only the chart half, below the headline: the picker's selected segment is colored too.
+            var bars = 0
+            for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+                for y in stride(from: rep.pixelsHigh * 2 / 5, to: rep.pixelsHigh, by: 3) {
+                    guard let pixel = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), pixel.saturationComponent > 0.2 else { continue }
+                    if abs(pixel.hueComponent - sand.hueComponent) < 0.06 { bars += 1 }
+                }
+            }
+            expect(bars > 200, "today's bar is drawn in the sand's color: \(bars) pixels")
+            window.close(); timer.run(0.2)
+            expect(StatsPanel.open == nil, "closing it puts it away")
+        }
+    }
+
     suite("Rendering") {
         test("every color on both bases draws its sand, glass and caps") {
             for color in Theme.colors.indices {

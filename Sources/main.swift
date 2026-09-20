@@ -40,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        view?.flushStatistics()  // the last stretch of sand still counts
+    }
+
     private func askAboutStartingAtLogin() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: "loginItemConfigured") else { return }
@@ -89,6 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         add("Show Sand Timer", #selector(showTimer), target: self)
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
+        menu.addItem(.separator())
+        add("Statistics…", #selector(HourglassView.statsClicked), target: view)
         menu.addItem(.separator())
         add("Quit Sand Timer", #selector(NSApplication.terminate(_:)), target: NSApp)
     }

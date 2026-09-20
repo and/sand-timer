@@ -122,6 +122,13 @@ final class HourglassView: NSView {
     private var lastTick = CACurrentMediaTime()
     private var lastRedraw = 0.0
     private var timer: Timer?
+    /// What the timer has done, day by day; `Statistics…` shows it.
+    private var log = SandLog.load()
+    /// Time run that hasn't been written out yet, and the moment the record has been counted up to while it runs.
+    private var unsavedSeconds: TimeInterval = 0
+    private var countedUpTo: Date?
+    /// How much running time to gather before writing the record out again.
+    private static let saveRunEvery: TimeInterval = 30
     /// Called when the user asks to hide the timer in the menu bar.
     var onHide: (() -> Void)?
     /// Snapshot only: angles past the slide threshold show a flip in progress; smaller ones bend the stream.
@@ -169,10 +176,12 @@ final class HourglassView: NSView {
         lastTick = media
 
         let running = clock.isRunning(at: now)
-        if soundOn && wasRunning && !running && clock.progress(at: now) >= 1 {
+        let finished = wasRunning && !running && clock.progress(at: now) >= 1
+        if soundOn && finished {
             NSSound(named: "Glass")?.play()
         }
         wasRunning = running
+        recordRun(finished: finished, at: now)
         let elapsed = running ? clock.progress(at: now) * clock.duration : nil
         if let elapsed, let lastElapsed, clock.minuteChimeDue(from: lastElapsed, to: elapsed), minuteChimesOn {
             minuteChimesPlayed += 1
@@ -798,6 +807,7 @@ final class HourglassView: NSView {
         menu.addItem(float)
         menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))
         menu.addItem(.separator())
+        menu.addItem(item("Statistics…", #selector(statsClicked)))
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
         menu.addItem(.separator())
 
@@ -912,6 +922,45 @@ final class HourglassView: NSView {
         letGo()  // floating: stay put; not floating any more: fall to the bottom of the screen
     }
     @objc private func supportClicked() { NSWorkspace.shared.open(Self.supportURL) }
+
+    // MARK: Statistics
+
+    /// What the statistics window draws, read afresh each time it refreshes.
+    var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand) }
+
+    @objc func statsClicked() {
+        saveStatistics(at: Date())  // the window shouldn't have to wait for the next batch
+        StatsPanel.show { [weak self] in self?.statistics ?? Statistics(log: SandLog(), sand: .systemPurple) }
+    }
+
+    /// Counts the time the sand has actually been running since the last tick, and the timers that run all the way
+    /// out. Real time, not sand time: a flip moves the sand about without adding to the day.
+    private func recordRun(finished: Bool, at now: Date) {
+        if let since = countedUpTo {
+            // Sand stops at the moment the top empties, however late this tick comes — the Mac may have slept.
+            let until = min(now, clock.finishTime ?? now)
+            if until > since {
+                log.add(seconds: until.timeIntervalSince(since), on: until)
+                unsavedSeconds += until.timeIntervalSince(since)
+            }
+        }
+        countedUpTo = clock.isRunning(at: now) ? now : nil
+        if finished { log.add(finished: 1, on: now) }
+        // Written in batches while it runs, and once more as soon as it stops: a crash costing a few seconds of the
+        // record matters less than writing on every frame would.
+        if finished || unsavedSeconds >= Self.saveRunEvery || (countedUpTo == nil && unsavedSeconds > 0) {
+            saveStatistics(at: now)
+        }
+    }
+
+    /// Writes the record out now: the app is quitting, and the last few seconds of sand shouldn't be lost with it.
+    func flushStatistics() { saveStatistics(at: Date()) }
+
+    private func saveStatistics(at now: Date) {
+        log.prune(at: now)
+        log.save()
+        unsavedSeconds = 0
+    }
 
     @objc private func loginToggled() {
         UserDefaults.standard.set(true, forKey: "loginItemConfigured")

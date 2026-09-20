@@ -34,6 +34,10 @@ desktop, sitting above whatever you are working in.
   25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), the colour of the sand, the style of the base, how big it is,
   whether it makes sounds (including an optional gentle chime each minute), whether it starts when you log in, and whether it hides in
   the menu bar.
+- **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
+  you finished, day by day, week by week, month by month and year by year. Hover a bar to
+  read that day off. It counts only time the sand was actually running, and it never
+  leaves your Mac.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
 the menu bar and the time left shows up there instead, where you can pause and resume it.
