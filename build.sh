@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/Model.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/HourglassView.swift)
+  APP_SOURCES=(Sources/Model.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/HourglassView.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
@@ -73,13 +73,21 @@ APP=build/SandTimer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+# The MCP server is a second, much smaller program in the same bundle: it answers Claude's questions about the
+# record of time run, sharing the app's own Stats.swift so the two can't disagree about a week or a month.
+MCP=(Sources/Stats.swift Tools/SandTimerMCP/Server.swift Tools/SandTimerMCP/main.swift)
+
 if [[ "${1:-}" == "release" ]]; then
   # One app for both Apple Silicon and Intel Macs.
   swiftc -swift-version 5 -O -target arm64-apple-macos13 Sources/*.swift -o build/SandTimer-arm64
   swiftc -swift-version 5 -O -target x86_64-apple-macos13 Sources/*.swift -o build/SandTimer-x86_64
   lipo -create build/SandTimer-arm64 build/SandTimer-x86_64 -output "$APP/Contents/MacOS/SandTimer"
+  swiftc -swift-version 5 -O -target arm64-apple-macos13 "${MCP[@]}" -o build/sand-timer-mcp-arm64
+  swiftc -swift-version 5 -O -target x86_64-apple-macos13 "${MCP[@]}" -o build/sand-timer-mcp-x86_64
+  lipo -create build/sand-timer-mcp-arm64 build/sand-timer-mcp-x86_64 -output "$APP/Contents/MacOS/sand-timer-mcp"
 else
   swiftc -swift-version 5 -O Sources/*.swift -o "$APP/Contents/MacOS/SandTimer"
+  swiftc -swift-version 5 -O "${MCP[@]}" -o "$APP/Contents/MacOS/sand-timer-mcp"
 fi
 
 # The icon is drawn by the app itself, so it always matches the timer.
@@ -109,6 +117,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 if [[ "${1:-}" != "release" ]]; then
+  # The helper is signed first: signing the bundle seals what is inside it.
+  codesign --force --sign - "$APP/Contents/MacOS/sand-timer-mcp" >/dev/null 2>&1
   codesign --force --sign - "$APP" >/dev/null 2>&1
   echo "Built $APP"
   exit
@@ -145,6 +155,8 @@ submit_for_notarization() {
     return 1
   fi
 }
+# Inside out: a nested program has to carry its own signature before the bundle is sealed around it.
+codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP/Contents/MacOS/sand-timer-mcp"
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 

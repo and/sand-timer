@@ -32,6 +32,20 @@ Point `NOTARY_PROFILE` at a different profile to use another one, or set it empt
 skip notarizing. It verifies what it produced rather than assuming: `stapler validate`
 on both artifacts, then `spctl --assess`, which is the check another Mac performs.
 
+## The MCP server
+
+`sand-timer-mcp` is a second program in the same bundle, built from the app's own
+`Stats.swift` so the two can't disagree about where a week begins. It speaks JSON-RPC over
+stdin and stdout, reads the record from the app's preferences by name (inside the bundle it
+shares the app's identifier, so a `UserDefaults` suite of that name would be meaningless),
+and only reads. Drive it by hand with:
+
+```sh
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | build/SandTimer.app/Contents/MacOS/sand-timer-mcp
+```
+
+Being a nested program, it is signed before the bundle is sealed around it.
+
 ## Rendering images
 
 The app draws its own images. `SandTimer --snapshot out.png` renders the view to a
@@ -67,4 +81,5 @@ The shared palette matters: generated per frame, the sand's speckle bands badly.
 | `Sources/Updates.swift` | the once-a-day look for a newer release |
 | `Sources/StatsWindow.swift` | the statistics window and its bar chart |
 | `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
+| `Tools/SandTimerMCP/` | the MCP server Claude reads the record through |
 

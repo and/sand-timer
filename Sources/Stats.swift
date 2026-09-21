@@ -154,15 +154,19 @@ struct SandLog: Equatable {
                       parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
     }
 
+    /// The last day a span covers, and for the span still running, today.
+    static func lastDay(of start: Date, period: Period, at now: Date, calendar: Calendar = .current) -> Date {
+        let nextStart = calendar.date(byAdding: period.unit, value: 1, to: start) ?? start
+        return min(calendar.date(byAdding: .day, value: -1, to: nextStart) ?? start, now)
+    }
+
     /// The whole record as comma-separated rows, one for every span of `period` from the first day recorded to the
     /// one happening now. Dates are written yyyy-MM-dd, which sorts and reads the same in every spreadsheet, and
     /// every field is a plain number or date, so nothing needs quoting or escaping.
     func csv(_ period: Period, at now: Date, calendar: Calendar = .current) -> String {
         var rows = ["Start,End,Time run (seconds),Time run (minutes),Timers finished"]
         for bucket in allBuckets(period, at: now, calendar: calendar) {
-            // The last day of the span, and for the span still running, today.
-            let nextStart = calendar.date(byAdding: period.unit, value: 1, to: bucket.start) ?? bucket.start
-            let last = min(calendar.date(byAdding: .day, value: -1, to: nextStart) ?? bucket.start, now)
+            let last = Self.lastDay(of: bucket.start, period: period, at: now, calendar: calendar)
             rows.append([Self.dayKey(bucket.start, calendar: calendar), Self.dayKey(last, calendar: calendar),
                          String(format: "%.0f", bucket.seconds), String(format: "%.1f", bucket.seconds / 60),
                          "\(bucket.finished)"].joined(separator: ","))
@@ -177,8 +181,14 @@ extension SandLog {
     static let defaultsKey = "sandLog"
 
     static func load(from defaults: UserDefaults = .standard) -> SandLog {
+        load(stored: defaults.dictionary(forKey: defaultsKey) as? [String: [String: Any]] ?? [:])
+    }
+
+    /// The record from however it was read back — the app's own settings, or another program reading the app's
+    /// preferences, as the MCP server does.
+    static func load(stored: [String: [String: Any]]) -> SandLog {
         var log = SandLog()
-        for (key, entry) in defaults.dictionary(forKey: defaultsKey) as? [String: [String: Any]] ?? [:] {
+        for (key, entry) in stored {
             log.days[key] = Day(seconds: entry["seconds"] as? Double ?? 0, finished: entry["finished"] as? Int ?? 0)
         }
         return log
