@@ -37,7 +37,8 @@ desktop, sitting above whatever you are working in.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
   you finished, day by day, week by week, month by month and year by year. Hover a bar to
   read that day off. It counts only time the sand was actually running, and it never
-  leaves your Mac.
+  leaves your Mac — unless you ask it to: **Export…** saves the whole record as a CSV
+  file, grouped the way you are looking at it, for a spreadsheet or a timesheet.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
 the menu bar and the time left shows up there instead, where you can pause and resume it.

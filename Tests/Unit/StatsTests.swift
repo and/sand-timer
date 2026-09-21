@@ -79,6 +79,30 @@ func statsTests() {
             expect(SandLog.timersLabel(1) == "1 timer" && SandLog.timersLabel(0) == "0 timers")
         }
 
+        test("an export covers every span since the first day, not just the ones on the chart") {
+            var log = SandLog()
+            log.add(seconds: 1500, finished: 1, on: day(2026, 1, 2), calendar: calendar)
+            log.add(seconds: 600, on: day(2026, 1, 3), calendar: calendar)
+            log.add(seconds: 90, on: now, calendar: calendar)
+
+            let daily = log.csv(.daily, at: now, calendar: calendar).split(separator: "\n").map(String.init)
+            expect(daily.first == "Start,End,Time run (seconds),Time run (minutes),Timers finished", "got \(daily.first ?? "")")
+            expect(daily.count == 263, "every day from 2 January to 20 September, header included: \(daily.count)")
+            expect(daily[1] == "2026-01-02,2026-01-02,1500,25.0,1", "got \(daily[1])")
+            expect(daily[2] == "2026-01-03,2026-01-03,600,10.0,0", "got \(daily[2])")
+            expect(daily.last == "2026-09-20,2026-09-20,90,1.5,0", "today comes last: \(daily.last ?? "")")
+            expect(daily.contains("2026-05-05,2026-05-05,0,0.0,0"), "a day the timer wasn't used is still a row")
+
+            let monthly = log.csv(.monthly, at: now, calendar: calendar).split(separator: "\n").map(String.init)
+            expect(monthly.count == 10, "nine months and a header: \(monthly.count)")
+            expect(monthly[1] == "2026-01-01,2026-01-31,2100,35.0,1", "January runs to the 31st: \(monthly[1])")
+            expect(monthly.last == "2026-09-01,2026-09-20,90,1.5,0", "the month still running ends today: \(monthly.last ?? "")")
+            expect(log.csv(.yearly, at: now, calendar: calendar).split(separator: "\n").count == 2, "one year, one row")
+            expect(SandLog().csv(.daily, at: now, calendar: calendar).split(separator: "\n").count == 1, "nothing recorded: just the header")
+            expect(SandLog.exportFilename(at: now, calendar: calendar) == "sand_timer_report_202609201000.csv",
+                   "named for the moment it was saved: \(SandLog.exportFilename(at: now, calendar: calendar))")
+        }
+
         test("the record survives a restart") {
             let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
             defaults.removeObject(forKey: SandLog.defaultsKey)

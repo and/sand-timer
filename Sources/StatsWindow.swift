@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Everything the statistics window shows. It is read afresh on every refresh, so the window keeps up with the
 /// sand as it runs and with a change of color.
@@ -28,7 +29,7 @@ final class StatsPanel: NSPanel, NSWindowDelegate {
     }
 
     private init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 440, height: 340),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 470, height: 340),
                    styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
         title = "Sand Timer Statistics"
         contentView = stats
@@ -69,11 +70,14 @@ final class StatsView: NSView {
     /// The bar under the pointer, whose span the headline then describes instead of the current one.
     private var hovered: Int?
     private let picker = NSSegmentedControl()
+    private let export = NSButton(title: "Export…", target: nil, action: nil)
 
     private static let inset: CGFloat = 22
+    /// Room kept along the bottom right for the Export button.
+    private static let exportWidth: CGFloat = 78
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 440, height: 340))
+        super.init(frame: NSRect(x: 0, y: 0, width: 470, height: 340))
         picker.segmentStyle = .automatic
         picker.segmentDistribution = .fillEqually
         picker.segmentCount = SandLog.Period.allCases.count
@@ -84,6 +88,13 @@ final class StatsView: NSView {
         picker.target = self
         picker.action = #selector(periodPicked)
         addSubview(picker)
+        export.bezelStyle = .rounded
+        export.controlSize = .small
+        export.font = .systemFont(ofSize: 11)
+        export.toolTip = "Save these statistics as a CSV file"
+        export.target = self
+        export.action = #selector(exportClicked)
+        addSubview(export)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -95,6 +106,28 @@ final class StatsView: NSView {
         reload()
     }
 
+    /// Saves the whole record as a CSV file, grouped the way the window is showing it — not just the spans on
+    /// screen, but every one from the first day the sand ran.
+    @objc private func exportClicked() {
+        let csv = source().log.csv(period, at: Date())
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = SandLog.exportFilename(at: Date())
+        panel.title = "Export Statistics"
+        let save = { (response: NSApplication.ModalResponse) in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try csv.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't save the statistics"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+        }
+        if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
+    }
+
     /// Reads the record again and redraws: called when the window opens, once a second while it's open, and
     /// whenever the pointer moves over a different bar.
     func reload() {
@@ -103,12 +136,14 @@ final class StatsView: NSView {
         buckets = statistics.log.buckets(period, at: Date())
         total = statistics.log.allTime
         since = statistics.log.firstDay()
+        export.isEnabled = total.seconds > 0 || total.finished > 0  // nothing to save until the sand has run
         needsDisplay = true
     }
 
     override func layout() {
         super.layout()
         picker.frame = NSRect(x: Self.inset, y: bounds.height - 42, width: bounds.width - 2 * Self.inset, height: 24)
+        export.frame = NSRect(x: bounds.width - Self.inset - Self.exportWidth, y: 18, width: Self.exportWidth, height: 22)
     }
 
     // MARK: Following the pointer
@@ -220,10 +255,18 @@ final class StatsView: NSView {
             } ?? "All time"
             summary = "\(start) · \(SandLog.durationLabel(total.seconds)) · \(SandLog.timersLabel(total.finished)) finished"
         }
-        text(summary, size: 11, color: .secondaryLabelColor).draw(in: NSRect(x: Self.inset, y: 22, width: width, height: 16))
+        text(summary, size: 11, color: .secondaryLabelColor, truncating: true)
+            .draw(in: NSRect(x: Self.inset, y: 22, width: width - Self.exportWidth - 12, height: 16))
     }
 
-    private func text(_ string: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor) -> NSAttributedString {
-        NSAttributedString(string: string, attributes: [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color])
+    private func text(_ string: String, size: CGFloat, weight: NSFont.Weight = .regular, color: NSColor,
+                      truncating: Bool = false) -> NSAttributedString {
+        var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size, weight: weight), .foregroundColor: color]
+        if truncating {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail  // one line, however long the tally grows
+            attributes[.paragraphStyle] = paragraph
+        }
+        return NSAttributedString(string: string, attributes: attributes)
     }
 }

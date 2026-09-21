@@ -71,12 +71,29 @@ struct SandLog: Equatable {
             .flatMap { Self.date(forDayKey: $0, calendar: calendar) }
     }
 
-    /// The last `period.span` spans, oldest first, with the one happening now last.
+    /// The last `period.span` spans, oldest first, with the one happening now last: what the chart shows.
     func buckets(_ period: Period, at now: Date, calendar: Calendar = .current) -> [Bucket] {
         guard let current = calendar.dateInterval(of: period.unit, for: now)?.start else { return [] }
         let starts: [Date] = stride(from: period.span - 1, through: 0, by: -1).compactMap {
             calendar.date(byAdding: period.unit, value: -$0, to: current)
         }
+        return buckets(period, starts: starts, calendar: calendar)
+    }
+
+    /// Every span from the first day recorded to the one happening now: what an export covers.
+    func allBuckets(_ period: Period, at now: Date, calendar: Calendar = .current) -> [Bucket] {
+        guard let current = calendar.dateInterval(of: period.unit, for: now)?.start, let first = firstDay(calendar: calendar),
+              var start = calendar.dateInterval(of: period.unit, for: first)?.start else { return [] }
+        var starts: [Date] = []
+        while start <= current {
+            starts.append(start)
+            guard let next = calendar.date(byAdding: period.unit, value: 1, to: start), next > start else { break }
+            start = next
+        }
+        return buckets(period, starts: starts, calendar: calendar)
+    }
+
+    private func buckets(_ period: Period, starts: [Date], calendar: Calendar) -> [Bucket] {
         guard let first = starts.first else { return [] }
 
         var totals = [Day](repeating: Day(), count: starts.count)
@@ -128,6 +145,30 @@ struct SandLog: Equatable {
 
     /// "5 timers" or "1 timer", for the count that ran all the way out.
     static func timersLabel(_ count: Int) -> String { "\(count) timer" + (count == 1 ? "" : "s") }
+
+    /// What an export is called: sand_timer_report_YYYYMMDDHHMM.csv, stamped with the moment it was saved, so a
+    /// folder of them sorts by when each was taken and two exports never quietly overwrite one another.
+    static func exportFilename(at now: Date, calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+        return String(format: "sand_timer_report_%04d%02d%02d%02d%02d.csv",
+                      parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
+    }
+
+    /// The whole record as comma-separated rows, one for every span of `period` from the first day recorded to the
+    /// one happening now. Dates are written yyyy-MM-dd, which sorts and reads the same in every spreadsheet, and
+    /// every field is a plain number or date, so nothing needs quoting or escaping.
+    func csv(_ period: Period, at now: Date, calendar: Calendar = .current) -> String {
+        var rows = ["Start,End,Time run (seconds),Time run (minutes),Timers finished"]
+        for bucket in allBuckets(period, at: now, calendar: calendar) {
+            // The last day of the span, and for the span still running, today.
+            let nextStart = calendar.date(byAdding: period.unit, value: 1, to: bucket.start) ?? bucket.start
+            let last = min(calendar.date(byAdding: .day, value: -1, to: nextStart) ?? bucket.start, now)
+            rows.append([Self.dayKey(bucket.start, calendar: calendar), Self.dayKey(last, calendar: calendar),
+                         String(format: "%.0f", bucket.seconds), String(format: "%.1f", bucket.seconds / 60),
+                         "\(bucket.finished)"].joined(separator: ","))
+        }
+        return rows.joined(separator: "\n") + "\n"
+    }
 }
 
 // MARK: Keeping the record between launches

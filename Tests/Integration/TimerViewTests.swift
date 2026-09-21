@@ -377,6 +377,8 @@ func timerViewTests() {
                 }
             }
             expect(bars > 200, "today's bar is drawn in the sand's color: \(bars) pixels")
+            let button = try require(view.subviews.compactMap({ $0 as? NSButton }).first { $0.title == "Export…" }, "the Export button")
+            expect(button.isEnabled, "there is a record to save, so it can be exported")
             window.close(); timer.run(0.2)
             expect(StatsPanel.open == nil, "closing it puts it away")
         }
