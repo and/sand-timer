@@ -811,6 +811,21 @@ final class HourglassView: NSView {
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
         menu.addItem(.separator())
 
+        if let update = UpdateChecker.shared.available {
+            menu.addItem(item("Update to \(Updates.label(update.version))…", #selector(updateClicked)))
+        }
+        let updates = item("Check for Updates", #selector(updateChecksToggled))
+        updates.state = UpdateChecker.shared.isEnabled ? .on : .off
+        updates.toolTip = "Asks GitHub once a day whether a newer Sand Timer has been released"
+        menu.addItem(updates)
+        if let version = Updates.currentVersion {
+            let running = NSMenuItem(title: "Sand Timer \(Updates.label(version))", action: nil, keyEquivalent: "")
+            running.isEnabled = false
+            menu.addItem(running)
+        }
+        // Quit keeps a section to itself: macOS puts an icon on it, and a section holding an icon indents every
+        // item in it, which would push the update lines out of line with the rest of the menu.
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Sand Timer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
         menu.addItem(quit)
@@ -922,6 +937,11 @@ final class HourglassView: NSView {
         letGo()  // floating: stay put; not floating any more: fall to the bottom of the screen
     }
     @objc private func supportClicked() { NSWorkspace.shared.open(Self.supportURL) }
+
+    @objc private func updateChecksToggled() { UpdateChecker.shared.setEnabled(!UpdateChecker.shared.isEnabled) }
+
+    /// Opens the page for the newer release. Nothing is downloaded or installed on the user's behalf.
+    @objc func updateClicked() { NSWorkspace.shared.open(UpdateChecker.shared.available?.page ?? Updates.releasesPage) }
 
     // MARK: Statistics
 

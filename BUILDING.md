@@ -51,6 +51,7 @@ The shared palette matters: generated per frame, the sand's speckle bands badly.
 | `Sources/Sounds.swift` | synthesised pouring, shaking and chime |
 | `Sources/Model.swift` | duration, progress and settings |
 | `Sources/Stats.swift` | the day-by-day record behind the statistics |
+| `Sources/Updates.swift` | the once-a-day look for a newer release |
 | `Sources/StatsWindow.swift` | the statistics window and its bar chart |
 | `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
 

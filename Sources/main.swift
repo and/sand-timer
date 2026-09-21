@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.panel = panel
         self.view = view
         if defaults.bool(forKey: "hidden") { hideToMenuBar() } else { panel.orderFrontRegardless() }
+        UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
         // Start at Login is opt-in: ask once, on the first launch, once the timer is on screen.
         if !defaults.bool(forKey: "loginItemConfigured") {
             DispatchQueue.main.async { [weak self] in self?.askAboutStartingAtLogin() }
@@ -95,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
         menu.addItem(.separator())
         add("Statistics…", #selector(HourglassView.statsClicked), target: view)
+        if let update = UpdateChecker.shared.available {
+            add("Update to \(Updates.label(update.version))…", #selector(HourglassView.updateClicked), target: view)
+        }
         menu.addItem(.separator())
         add("Quit Sand Timer", #selector(NSApplication.terminate(_:)), target: NSApp)
     }

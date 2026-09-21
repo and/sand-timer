@@ -384,6 +384,24 @@ func timerViewTests() {
         }
     }
 
+    suite("Update checks") {
+        test("the menu offers Check for Updates, and it can be turned off and on again") {
+            let timer = TimerHarness()
+            let wasOn = UpdateChecker.shared.isEnabled
+            defer { UpdateChecker.shared.setEnabled(wasOn) }
+            UpdateChecker.shared.setEnabled(true)
+            let on = try require(timer.view.makeMenu().items.first { $0.title == "Check for Updates" }, "the menu item")
+            expect(on.state == .on, "ticked while the app looks for updates")
+            timer.menu("updateChecksToggled")
+            expect(!UpdateChecker.shared.isEnabled, "turned off")
+            let off = try require(timer.view.makeMenu().items.first { $0.title == "Check for Updates" }, "the menu item")
+            expect(off.state == .off, "and the tick goes with it")
+            expect(UpdateChecker.shared.available == nil, "nothing is offered while the check is off")
+            timer.menu("updateChecksToggled")
+            expect(UpdateChecker.shared.isEnabled, "and back on")
+        }
+    }
+
     suite("Rendering") {
         test("every color on both bases draws its sand, glass and caps") {
             for color in Theme.colors.indices {

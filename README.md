@@ -40,6 +40,12 @@ desktop, sitting above whatever you are working in.
   leaves your Mac — unless you ask it to: **Export…** saves the whole record as a CSV
   file, grouped the way you are looking at it, for a spreadsheet or a timesheet.
 
+The app checks once a day whether a newer version has been released, and if there is one
+the menu offers it — it only ever opens the release page in your browser, and downloads
+and installs nothing by itself. The menu's **Check for Updates** turns that off, and with
+it off the app makes no network calls at all. Both sit at the foot of the menu, beside
+the line that says which version you are running.
+
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
 the menu bar and the time left shows up there instead, where you can pause and resume it.
 
