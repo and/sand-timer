@@ -303,7 +303,7 @@ func timerViewTests() {
             let duration = try require(titles.firstIndex(of: "Duration"), "Duration")
             expect(hide < duration, "hiding it is something to do with the timer, so it sits with Flip and Restart")
         }
-        test("picking a sand volume changes how loud the sand is, and it can be turned off") {
+        test("picking a sand volume changes how loud the sand is, and it can be turned off", serial: true) {
             let timer = TimerHarness(minutes: 25)
             let wasVolume = timer.view.grainVolume
             defer { timer.menu("grainVolumePicked", tag: HourglassView.grainVolumes.firstIndex { $0.volume == wasVolume } ?? 2) }
@@ -340,6 +340,20 @@ func timerViewTests() {
                 expect(abs(timer.center.y - timer.screen.minY - 200 * timer.scale) < 1, "\(HourglassView.sizes[size].name)")
                 expect(timer.panel.frame.size == HourglassView.contentSize(sizeIndex: size))
             }
+        }
+        test("sand set to be heard is heard while the timer is hidden, because the menu says it is on", serial: true) {
+            let timer = TimerHarness(minutes: 25)
+            let wasVolume = timer.view.grainVolume
+            defer { timer.menu("grainVolumePicked", tag: HourglassView.grainVolumes.firstIndex { $0.volume == wasVolume } ?? 0) }
+            timer.menu("grainVolumePicked", tag: 2)  // Normal
+            timer.click(); timer.settle(); timer.run(0.8)
+            expect(Sounds.pourOnGlass?.isPlaying == true || Sounds.pourOnSand?.isPlaying == true, "pouring while on screen")
+            timer.panel.orderOut(nil)  // away to the menu bar
+            timer.run(0.8)
+            expect(Sounds.pourOnGlass?.isPlaying == true || Sounds.pourOnSand?.isPlaying == true, "and still pouring, hidden")
+            timer.menu("grainVolumePicked", tag: 0)  // Off
+            timer.run(0.5)
+            expect(Sounds.pourOnGlass?.isPlaying != true && Sounds.pourOnSand?.isPlaying != true, "silenced only by the setting")
         }
         test("the sound settings can be changed from the menu bar's menu too") {
             let timer = TimerHarness()
@@ -518,7 +532,7 @@ func timerViewTests() {
     }
 
     suite("Performance") {
-        test("a running timer at the largest size stays light on the CPU") {
+        test("a running timer at the largest size stays light on the CPU", serial: true) {
             let timer = TimerHarness(size: 2)
             timer.click(); timer.run(1.0)
             func seconds(_ t: timeval) -> Double { Double(t.tv_sec) + Double(t.tv_usec) / 1e6 }

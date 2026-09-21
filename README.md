@@ -49,8 +49,8 @@ the line that says which version you are running.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
 the menu bar and the time left shows up there instead, where you can pause, resume and
-restart it and change the sounds. Out of sight the sand falls silently — no pouring, no
-rattle — but the chimes still ring.
+restart it and change the sounds. It carries on as it was, sounds and all: what you hear
+follows the menu, not whether the timer is on screen.
 
 The sound of the falling sand is off to begin with; turn it up under **Sand Sounds** in
 the menu whenever you want to hear it.

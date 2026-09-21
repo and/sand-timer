@@ -300,9 +300,11 @@ final class HourglassView: NSView {
         // The top keeps draining, which gradually wears away the shape it slumped into.
         if stream != nil { topSlump = topSlump.map { $0 * exp(-dt / 12) } }
         let visible = window?.isVisible == true
+        // Sand is heard whenever it runs, hidden in the menu bar or not: the menu says what Sand Sounds is set to,
+        // and putting the timer away shouldn't quietly contradict it. A hidden timer can't be shaken anyway.
         // Shaken sand rattles, louder the more it's stirred up; it fades with the sand as each jolt settles.
         if let rattle = Sounds.shake {
-            let level = visible ? min(0.5, agitation.level * 0.55) * grainVolume : 0  // a light rattle, not a shaker
+            let level = min(0.5, agitation.level * 0.55) * grainVolume  // a light rattle, not a shaker
             if level > 0.01 {
                 rattle.volume = Float(min(1, level))
                 if !rattle.isPlaying { rattle.play() }
@@ -310,7 +312,7 @@ final class HourglassView: NSView {
                 rattle.stop()
             }
         }
-        let pouring = visible && grainVolume > 0 && stream.map { $0.front > 150 && $0.tail < 150 } == true
+        let pouring = grainVolume > 0 && stream.map { $0.front > 150 && $0.tail < 150 } == true
         Sounds.setPour(active: pouring, glassiness: pouring ? SandPhysics.pourGlassiness(progress: clock.progress(at: now)) : 0,
                        volume: grainVolume)
 
