@@ -83,10 +83,16 @@ it — "how much did I focus this week?", "which days do I actually get deep wor
 claude mcp add sand-timer -- /Applications/Sand\ Timer.app/Contents/MacOS/sand-timer-mcp
 ```
 
-It only reads, and only what the Statistics window shows: time run and timers finished, by
-day, week, month or year, plus the same CSV the Export button writes. It makes no network
-calls, nothing is uploaded, and it can't start, stop or change your timer. Nothing runs
+It reads what the Statistics window shows — time run and timers finished, by day, week,
+month or year, plus the same CSV the Export button writes — and it can tell you what the
+timer is doing right now. It makes no network calls and nothing is uploaded. Nothing runs
 until Claude asks it something.
+
+Claude can also work the timer for you — "start a 20 minute timer", "pause it" — but only
+once you allow it: turn on **Control from Claude & Shortcuts** in the right-click menu. It
+is off to begin with, and turning it off again stops the app listening. With it on, the
+timer answers `sandtimer://` links, so Shortcuts, a script or `open sandtimer://start?minutes=25`
+in a terminal can start, pause, resume and restart it too.
 
 ## Support it
 

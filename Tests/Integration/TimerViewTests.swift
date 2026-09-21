@@ -441,6 +441,40 @@ func timerViewTests() {
         }
     }
 
+    // What the timer publishes about itself, and whether it takes commands, are one setting per Mac — so these
+    // run on their own rather than beside the other test processes, which share them.
+    suite("Control from outside") {
+        test("a command starts a session of the length it asked for, and says so where others can read it", serial: true) {
+            let timer = TimerHarness(minutes: 25)
+            timer.view.startSession(minutes: 7)
+            timer.settle(); timer.run(0.5)
+            expect(timer.isRunning, "a command starts it running")
+            func published() -> TimerState { TimerState.load(stored: UserDefaults.standard.dictionary(forKey: TimerState.key)) }
+            let running = published()
+            expect(running.minutes == 7, "the length it was asked for: \(running.minutes)")
+            expect(running.isRunning(at: Date()), "written down as running")
+            let left = running.remaining(at: Date())
+            expect(left > 400 && left <= 420, "with the time left, about seven minutes: \(left)")
+
+            timer.view.pauseSession(); timer.settle()
+            let paused = published()
+            expect(paused.isPaused(at: Date()) && !paused.isRunning(at: Date()), "written down as paused: \(paused)")
+            timer.view.resumeSession(); timer.settle(); timer.run(0.3)
+            expect(published().isRunning(at: Date()), "and running again")
+        }
+        test("commands are refused until the menu allows them", serial: true) {
+            let timer = TimerHarness()
+            let wasAllowed = timer.view.allowsControl
+            defer { if timer.view.allowsControl != wasAllowed { timer.menu("controlToggled") } }
+            if timer.view.allowsControl { timer.menu("controlToggled") }
+            expect(!timer.view.allowsControl, "off to begin with")
+            let item = try require(timer.view.makeMenu().items.first { $0.title == "Control from Claude & Shortcuts" }, "the menu item")
+            expect(item.state == .off, "and the menu says so")
+            timer.menu("controlToggled")
+            expect(timer.view.allowsControl && UserDefaults.standard.bool(forKey: TimerState.controlKey), "turned on and remembered")
+        }
+    }
+
     suite("Rendering") {
         test("every color on both bases draws its sand, glass and caps") {
             for color in Theme.colors.indices {

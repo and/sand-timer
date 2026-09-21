@@ -196,6 +196,7 @@ final class HourglassView: NSView {
         if soundOn && finished {
             NSSound(named: "Glass")?.play()
         }
+        if finished { publishState() }  // the sand has run out: anything reading from outside should know
         wasRunning = running
         recordRun(finished: finished, at: now)
         let elapsed = running ? clock.progress(at: now) * clock.duration : nil
@@ -702,6 +703,7 @@ final class HourglassView: NSView {
         clock.flip(at: now)
         releasedAt = nil
         wasRunning = false
+        publishState()
         needsDisplay = true
     }
 
@@ -823,6 +825,10 @@ final class HourglassView: NSView {
         let float = item("Float Anywhere", #selector(floatToggled))
         float.state = floats ? .on : .off
         menu.addItem(float)
+        let control = item("Control from Claude & Shortcuts", #selector(controlToggled))
+        control.state = allowsControl ? .on : .off
+        control.toolTip = "Lets sandtimer:// links start, pause, resume and restart the timer"
+        menu.addItem(control)
         menu.addItem(.separator())
         menu.addItem(item("Statistics…", #selector(statsClicked)))
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
@@ -919,6 +925,7 @@ final class HourglassView: NSView {
     @objc private func pauseClicked() {
         guard flip == nil, tip == nil, clock.isRunning(at: Date()) else { return }
         clock.pause(at: Date())
+        publishState()
         // Knocked over, it falls toward whichever side has more room: lying down it needs 400 units past its corner.
         var fallRight = true
         if let window, let box = screenBox {
@@ -935,6 +942,7 @@ final class HourglassView: NSView {
             guard let self else { return }
             clock.resume(at: Date())
             releasedAt = Date().addingTimeInterval(SandPhysics.releaseDelay)
+            publishState()
             needsDisplay = true
         }
         if lyingAngle != 0 { tipOver(to: 0, then: resume) } else if tip == nil { resume() }
@@ -947,6 +955,7 @@ final class HourglassView: NSView {
             guard let self else { return }
             clock.restart(at: Date())
             releasedAt = Date()
+            publishState()
             topSettledProgress = 0
             bottomSettledProgress = 0
             topSlump = topSlump.map { _ in 0 }
@@ -970,6 +979,48 @@ final class HourglassView: NSView {
 
     /// Opens the page for the newer release. Nothing is downloaded or installed on the user's behalf.
     @objc func updateClicked() { NSWorkspace.shared.open(UpdateChecker.shared.available?.page ?? Updates.releasesPage) }
+
+    // MARK: What the timer is doing, for anything reading from outside
+
+    /// Whether commands from Claude, Shortcuts or a script are accepted at all.
+    private(set) var allowsControl = UserDefaults.standard.bool(forKey: TimerState.controlKey)
+
+    /// Writes down what the timer is doing now, so the MCP server can answer without asking the app.
+    func publishState() {
+        let now = Date()
+        var state = TimerState(minutes: minutes, updated: now)
+        if clock.isRunning(at: now) {
+            state.runningUntil = clock.finishTime
+        } else if clock.isPaused(at: now) {
+            state.pausedWith = clock.remaining(at: now)
+        }
+        UserDefaults.standard.set(state.stored, forKey: TimerState.key)
+    }
+
+    /// Starts a fresh session, optionally of a different length: what `sandtimer://start` asks for.
+    func startSession(minutes newMinutes: Int?) {
+        if let newMinutes { setDuration(minutes: newMinutes) }
+        restartClicked()
+    }
+
+    func pauseSession() { pauseClicked() }
+    func resumeSession() { resumeClicked() }
+
+    /// Any length from a minute to an hour, which is wider than the menu offers — "start a seven minute timer" is a
+    /// reasonable thing to ask for, even if it isn't worth a line in the menu.
+    func setDuration(minutes newMinutes: Int) {
+        minutes = min(60, max(1, newMinutes))
+        clock.setDuration(TimeInterval(minutes * 60), at: Date())
+        UserDefaults.standard.set(minutes, forKey: "minutes")
+        publishState()
+        needsDisplay = true
+    }
+
+    @objc private func controlToggled() {
+        allowsControl.toggle()
+        UserDefaults.standard.set(allowsControl, forKey: TimerState.controlKey)
+        publishState()
+    }
 
     // MARK: Statistics
 
@@ -1041,12 +1092,7 @@ final class HourglassView: NSView {
         UserDefaults.standard.set(grainVolume, forKey: "grainVolume")
     }
 
-    @objc private func durationPicked(_ sender: NSMenuItem) {
-        minutes = sender.tag
-        clock.setDuration(TimeInterval(minutes * 60), at: Date())
-        UserDefaults.standard.set(minutes, forKey: "minutes")
-        needsDisplay = true
-    }
+    @objc private func durationPicked(_ sender: NSMenuItem) { setDuration(minutes: sender.tag) }
 
     @objc private func themePicked(_ sender: NSMenuItem) {
         themeIndex = sender.tag

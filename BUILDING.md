@@ -46,6 +46,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | build/SandTimer.app/Cont
 
 Being a nested program, it is signed before the bundle is sealed around it.
 
+Commands go the other way as `sandtimer://` links — `start?minutes=25`, `pause`, `resume`,
+`restart` — which the app takes through `application(_:open:)` and only while the menu's
+control setting is on. The app writes what it is doing into `timerState` in its settings
+whenever that changes, which is how the server can answer "how long is left?" without
+asking the app anything. `Sources/TimerState.swift` defines that note, and is built into
+both programs so the two always agree about it.
+
 ## Rendering images
 
 The app draws its own images. `SandTimer --snapshot out.png` renders the view to a
@@ -81,5 +88,6 @@ The shared palette matters: generated per frame, the sand's speckle bands badly.
 | `Sources/Updates.swift` | the once-a-day look for a newer release |
 | `Sources/StatsWindow.swift` | the statistics window and its bar chart |
 | `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
-| `Tools/SandTimerMCP/` | the MCP server Claude reads the record through |
+| `Sources/TimerState.swift` | what the timer is doing, shared with the MCP server |
+| `Tools/SandTimerMCP/` | the MCP server Claude reads and drives the timer through |
 

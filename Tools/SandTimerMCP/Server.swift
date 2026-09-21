@@ -4,6 +4,24 @@ import Foundation
 /// conversation can be tested. A notification (a request with no id) gets nil: by the protocol, no reply at all.
 ///
 /// Everything here only reads the record. Nothing the server offers can start, stop or alter the timer.
+/// Why a command didn't get through, in words the person asking can act on.
+struct Unreachable: Error {
+    let reason: String
+}
+
+/// Everything the server needs from the world outside it, handed in so the whole conversation can be tested
+/// without a timer, a record or a Mac to run them on.
+struct SandTimerAccess {
+    /// The record of what has already happened.
+    var log: () -> SandLog
+    /// What the timer is doing right now, as the app last published it.
+    var state: () -> TimerState
+    /// Whether the app is set to accept commands at all.
+    var allowsControl: () -> Bool
+    /// Sends a command to the app and waits for it to say what it did.
+    var send: (_ command: String, _ minutes: Int?) -> Result<TimerState, Unreachable>
+}
+
 enum SandTimerMCP {
     static let name = "sand-timer"
     static let version = "1.5.1"
@@ -13,7 +31,13 @@ enum SandTimerMCP {
     /// it yet. Said plainly in the tool descriptions, so an answer doesn't claim more precision than there is.
     static let freshness = "Time is written out every half minute or so, so a timer running right now may be short by up to that much."
 
-    static func respond(to request: [String: Any], log: () -> SandLog, now: Date,
+    /// What to say when the timer is there but not listening.
+    static let controlOff = """
+        Sand Timer isn't accepting commands. Right-click the timer and turn on \
+        "Control from Claude & Shortcuts", then try again.
+        """
+
+    static func respond(to request: [String: Any], access: SandTimerAccess, now: Date,
                         calendar: Calendar = .current) -> [String: Any]? {
         guard let id = request["id"], !(id is NSNull) else { return nil }
         switch request["method"] as? String ?? "" {
@@ -33,7 +57,7 @@ enum SandTimerMCP {
             guard let tool = parameters["name"] as? String else {
                 return reply(id, text("No tool was named.", isError: true))
             }
-            return reply(id, call(tool, arguments: arguments, log: log, now: now, calendar: calendar))
+            return reply(id, call(tool, arguments: arguments, access: access, now: now, calendar: calendar))
         default:
             return ["jsonrpc": "2.0", "id": id,
                     "error": ["code": -32601, "message": "No method called \(request["method"] as? String ?? "")"]]
@@ -71,14 +95,43 @@ enum SandTimerMCP {
             ["name": "sand_timer_csv",
              "description": "The whole record as CSV, the same file the timer's Export button writes: Start, End, seconds, minutes, timers finished.",
              "inputSchema": schema(["period": period])],
+            ["name": "sand_timer_status",
+             "description": "What the timer is doing at this moment: running, paused, or waiting to be flipped, how long it is set for, and how much sand is left.",
+             "inputSchema": schema([:])],
+            ["name": "sand_timer_start",
+             "description": """
+                Turns the timer over and starts it running, from a full head of sand. Give a length in minutes to \
+                change how long it runs for, or leave that out to use the length it is set to already.
+                """,
+             "inputSchema": schema(["minutes": ["type": "integer", "minimum": 1, "maximum": 60,
+                                                "description": "How long to run for, 1 to 60 minutes."]])],
+            ["name": "sand_timer_pause",
+             "description": "Pauses a running timer: it tips onto its side and the sand stops.",
+             "inputSchema": schema([:])],
+            ["name": "sand_timer_resume",
+             "description": "Stands a paused timer back up and lets the sand run on from where it stopped.",
+             "inputSchema": schema([:])],
         ]
     }
 
     // MARK: Answering
 
-    private static func call(_ tool: String, arguments: [String: Any], log: () -> SandLog, now: Date,
+    private static func call(_ tool: String, arguments: [String: Any], access: SandTimerAccess, now: Date,
                              calendar: Calendar) -> [String: Any] {
-        let log = log()
+        switch tool {
+        case "sand_timer_status":
+            return text(json(describe(access.state(), at: now)))
+        case "sand_timer_start", "sand_timer_pause", "sand_timer_resume":
+            guard access.allowsControl() else { return text(controlOff, isError: true) }
+            let command = String(tool.dropFirst("sand_timer_".count))
+            switch access.send(command, command == "start" ? arguments["minutes"] as? Int : nil) {
+            case .success(let state): return text(json(describe(state, at: Date())))
+            case .failure(let why): return text(why.reason, isError: true)
+            }
+        default:
+            break
+        }
+        let log = access.log()
         let period = SandLog.Period.named(arguments["period"] as? String) ?? .daily
         switch tool {
         case "sand_timer_stats":
@@ -109,6 +162,14 @@ enum SandTimerMCP {
         default:
             return text("Sand Timer has no tool called \(tool).", isError: true)
         }
+    }
+
+    /// What the timer is doing, as the MCP client sees it.
+    private static func describe(_ state: TimerState, at now: Date) -> [String: Any] {
+        let left = state.remaining(at: now)
+        return ["state": state.describe(at: now), "minutes": state.minutes,
+                "remaining_seconds": seconds(left), "remaining": SandLog.durationLabel(left),
+                "as_of": state.updated == .distantPast ? "" : ISO8601DateFormatter().string(from: state.updated)]
     }
 
     private static func span(_ bucket: SandLog.Bucket, period: SandLog.Period, now: Date,

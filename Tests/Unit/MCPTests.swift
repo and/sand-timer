@@ -23,11 +23,37 @@ private let record: SandLog = {
     return log
 }()
 
+/// A timer standing there running, and a note of every command it was sent.
+private final class FakeTimer {
+    var allowsControl = true
+    var state = TimerState(minutes: 25, runningUntil: now.addingTimeInterval(900), updated: now)
+    var sent: [(command: String, minutes: Int?)] = []
+    var reachable = true
+
+    func send(_ command: String, minutes: Int?) -> Result<TimerState, Unreachable> {
+        sent.append((command, minutes))
+        guard reachable else { return .failure(Unreachable(reason: "Sand Timer didn't answer.")) }
+        switch command {
+        case "start": state = TimerState(minutes: minutes ?? state.minutes, runningUntil: now.addingTimeInterval(Double((minutes ?? state.minutes) * 60)), updated: now)
+        case "pause": state = TimerState(minutes: state.minutes, pausedWith: state.remaining(at: now), updated: now)
+        case "resume": state = TimerState(minutes: state.minutes, runningUntil: now.addingTimeInterval(state.remaining(at: now)), updated: now)
+        default: break
+        }
+        return .success(state)
+    }
+
+    var access: SandTimerAccess {
+        SandTimerAccess(log: { record }, state: { self.state }, allowsControl: { self.allowsControl }, send: send)
+    }
+}
+
+private var timer = FakeTimer()
+
 private func ask(_ method: String, _ parameters: [String: Any]? = nil, id: Any? = 1) -> [String: Any]? {
     var request: [String: Any] = ["jsonrpc": "2.0", "method": method]
     if let id { request["id"] = id }
     if let parameters { request["params"] = parameters }
-    return SandTimerMCP.respond(to: request, log: { record }, now: now, calendar: calendar)
+    return SandTimerMCP.respond(to: request, access: timer.access, now: now, calendar: calendar)
 }
 
 /// The text a tool call answered with, and whether it was an error.
@@ -65,7 +91,9 @@ func mcpTests() {
             let response = try require(ask("tools/list"), "a response")
             let tools = try require((response["result"] as? [String: Any])?["tools"] as? [[String: Any]], "the tools")
             let names = tools.compactMap { $0["name"] as? String }
-            expect(names == ["sand_timer_stats", "sand_timer_today", "sand_timer_days", "sand_timer_csv"], "got \(names)")
+            expect(names == ["sand_timer_stats", "sand_timer_today", "sand_timer_days", "sand_timer_csv",
+                             "sand_timer_status", "sand_timer_start", "sand_timer_pause", "sand_timer_resume"],
+                   "got \(names)")
             for tool in tools {
                 let name = tool["name"] as? String ?? "?"
                 expect((tool["description"] as? String)?.isEmpty == false, "\(name) says what it does")
@@ -119,6 +147,53 @@ func mcpTests() {
         test("the CSV is the same one the Export button writes") {
             let csv = try answer("sand_timer_csv", ["period": "monthly"]).text
             expect(csv == record.csv(.monthly, at: now, calendar: calendar), "got \(csv)")
+        }
+
+        test("it says what the timer is doing at this moment") {
+            timer = FakeTimer()
+            let status = try fields(try answer("sand_timer_status").text)
+            expect(status["state"] as? String == "running", "got \(status)")
+            expect(status["minutes"] as? Int == 25 && status["remaining_seconds"] as? Int == 900, "got \(status)")
+            expect(status["remaining"] as? String == "15m")
+
+            timer.state = TimerState(minutes: 25, pausedWith: 61, updated: now)
+            let paused = try fields(try answer("sand_timer_status").text)
+            expect(paused["state"] as? String == "paused", "got \(paused)")
+            timer.state = TimerState(minutes: 25, updated: now)
+            let idle = try fields(try answer("sand_timer_status").text)
+            expect(idle["state"] as? String == "waiting to be flipped" && idle["remaining_seconds"] as? Int == 0, "got \(idle)")
+        }
+
+        test("it can start, pause and resume the timer, and says what happened") {
+            timer = FakeTimer()
+            let started = try fields(try answer("sand_timer_start", ["minutes": 7]).text)
+            expect(timer.sent.map(\.command) == ["start"] && timer.sent.first?.minutes == 7, "sent \(timer.sent)")
+            expect(started["state"] as? String == "running" && started["minutes"] as? Int == 7, "got \(started)")
+
+            let paused = try fields(try answer("sand_timer_pause").text)
+            expect(paused["state"] as? String == "paused", "got \(paused)")
+            expect(timer.sent.last?.minutes == nil, "pause carries no length")
+            let resumed = try fields(try answer("sand_timer_resume").text)
+            expect(resumed["state"] as? String == "running", "got \(resumed)")
+            expect(timer.sent.map(\.command) == ["start", "pause", "resume"], "sent \(timer.sent.map(\.command))")
+        }
+
+        test("with control turned off it asks for it, and does not touch the timer") {
+            timer = FakeTimer()
+            timer.allowsControl = false
+            let refused = try answer("sand_timer_start")
+            expect(refused.failed, "marked as an error")
+            expect(refused.text.contains("Control from Claude & Shortcuts"), "says how to allow it: \(refused.text)")
+            expect(timer.sent.isEmpty, "and nothing was sent")
+            let status = try answer("sand_timer_status"), today = try answer("sand_timer_today")
+            expect(!status.failed && !today.failed, "reading is still fine")
+        }
+
+        test("a timer that cannot be reached is reported, not pretended about") {
+            timer = FakeTimer()
+            timer.reachable = false
+            let lost = try answer("sand_timer_pause")
+            expect(lost.failed && lost.text.contains("didn't answer"), "got \(lost)")
         }
 
         test("a tool it doesn't have is an error the client can see, not a crash") {

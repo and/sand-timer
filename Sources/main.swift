@@ -34,10 +34,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.panel = panel
         self.view = view
         if defaults.bool(forKey: "hidden") { hideToMenuBar() } else { panel.orderFrontRegardless() }
+        view.publishState()  // so anything reading from outside knows what the timer is doing from the start
         UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
         // Start at Login is opt-in: ask once, on the first launch, once the timer is on screen.
         if !defaults.bool(forKey: "loginItemConfigured") {
             DispatchQueue.main.async { [weak self] in self?.askAboutStartingAtLogin() }
+        }
+    }
+
+    /// Commands arriving as `sandtimer://start?minutes=25`, `sandtimer://pause`, `resume` or `restart` — from
+    /// Claude's MCP server, from Shortcuts, or from `open` in a terminal. Ignored entirely unless the menu's
+    /// "Control from Claude & Shortcuts" is on, and there is nothing here that can read anything out.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let view, view.allowsControl else { return }
+        for url in urls where url.scheme == "sandtimer" {
+            let command = url.host ?? url.lastPathComponent
+            let minutes = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "minutes" }?.value.flatMap(Int.init)
+            switch command {
+            case "start": view.startSession(minutes: minutes)
+            case "pause": view.pauseSession()
+            case "resume": view.resumeSession()
+            case "restart": view.startSession(minutes: nil)
+            default: NSLog("Sand Timer: no command called \(command)")
+            }
+            updateStatusTitle()
         }
     }
 
