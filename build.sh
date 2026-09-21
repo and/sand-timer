@@ -22,7 +22,7 @@ if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
   exit $(( unit_status || integration_status ))
 fi
 
-VERSION=1.4.1
+VERSION=1.5.0
 APP=build/SandTimer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
