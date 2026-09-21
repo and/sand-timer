@@ -23,7 +23,10 @@ final class TimerHarness {
         view.startTicking()
     }
 
-    deinit { panel.orderOut(nil) }
+    deinit {
+        view.stopTicking()  // a finished test's timer must stop driving the sand, and the sounds, for the next one
+        panel.orderOut(nil)
+    }
 
     var screen: CGRect { panel.screen?.visibleFrame ?? NSScreen.main!.visibleFrame }
     var center: CGPoint { CGPoint(x: panel.frame.midX, y: panel.frame.midY) }

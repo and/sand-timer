@@ -168,6 +168,16 @@ final class HourglassView: NSView {
         self.timer = timer
     }
 
+    /// Stops driving the timer, and with it any sound it was making. The app never needs this — its timer lives as
+    /// long as it does — but a test's timer has to stop when the test does, or it goes on silencing the sounds of
+    /// whichever timer is still running.
+    func stopTicking() {
+        timer?.invalidate()
+        timer = nil
+        Sounds.setPour(active: false, glassiness: 0)
+        Sounds.shake?.stop()
+    }
+
     func setPreview(progress: Double, running: Bool) {
         clock = SandClock(duration: clock.duration, progress: progress, runningSince: running ? Date() : nil)
         releasedAt = running ? .distantPast : nil
