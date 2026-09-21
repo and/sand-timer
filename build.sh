@@ -68,7 +68,7 @@ if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
   exit $run_status
 fi
 
-VERSION=1.5.0
+VERSION=1.5.1
 APP=build/SandTimer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
