@@ -5,7 +5,20 @@
 ./build.sh release      # universal binary, signed, notarized, packaged as a .dmg
 ./build.sh test         # unit and integration tests
 ./build.sh test-unit    # unit tests only (opens no windows)
+./build.sh test tilt    # only the tests matching a word, in one process, as they happen
 ```
+
+## The test run
+
+The sand has to fall in real time, so the integration tests are spread over four
+processes at once (`SHARDS=8 ./build.sh test` to change that), with the unit tests
+running beside them — about a minute instead of two and a half. The two test programs
+compile side by side as well.
+
+A handful of tests can't share: the one measuring the timer's share of a core, and the
+two that listen for the sand. They are marked `serial: true`, sit the shards out, and run
+afterwards with the machine to themselves. Asking for a word runs everything in a single
+process, where watching it happen is the point.
 
 ## Notarizing
 

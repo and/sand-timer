@@ -3,23 +3,69 @@
 #        ./build.sh release             build, sign and package a shareable disk image (see below for notarizing)
 #        ./build.sh test [word]         run the unit and integration tests (optionally only those matching a word)
 #        ./build.sh test-unit [word]    run only the unit tests (no windows)
+#
+# A full `test` run spreads the integration tests over SHARDS processes (4 by default) running at once, with the
+# unit tests beside them; the sand has to fall in real time, so waiting for it four times over is the whole saving.
+# Tests marked `serial` — the ones needing the sound device or a clear run at the CPU — are left until afterwards
+# and run on their own. Asking for a word runs everything in one process instead, where watching it happen matters
+# more than the minute saved.
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
   APP_SOURCES=(Sources/Model.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/HourglassView.swift)
-  echo "== Unit tests"
-  swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Unit/*.swift -o build/unit-tests
-  unit_status=0
-  ./build/unit-tests "${2:-}" || unit_status=$?
-  integration_status=0
+  FILTER="${2:-}"
+  SHARDS="${SHARDS:-4}"
+  started=$SECONDS
+  rm -f build/test-*.log(N)  # (N): zsh, quietly fine when there are none yet
+
+  # The two test programs share no files, so they compile side by side.
+  swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Unit/*.swift -o build/unit-tests &
+  unit_build=$!
+  integration_build=""
   if [[ "$1" == "test" ]]; then
-    echo "\n== Integration tests (opens the timer in windows briefly)"
-    swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Integration/*.swift -o build/integration-tests
-    ./build/integration-tests "${2:-}" || integration_status=$?
+    swiftc -swift-version 5 -O "${APP_SOURCES[@]}" Tests/TestKit.swift Tests/Integration/*.swift -o build/integration-tests &
+    integration_build=$!
   fi
-  exit $(( unit_status || integration_status ))
+  build_status=0
+  wait $unit_build || build_status=$?
+  [[ -z "$integration_build" ]] || wait $integration_build || build_status=$?
+  [[ $build_status -eq 0 ]] || exit $build_status
+
+  # One process each, watched as it goes: a filtered run is short, and seeing it happen is the point.
+  if [[ "$1" == "test-unit" || -n "$FILTER" ]]; then
+    echo "== Unit tests"
+    unit_status=0
+    ./build/unit-tests "$FILTER" || unit_status=$?
+    integration_status=0
+    if [[ "$1" == "test" ]]; then
+      echo "\n== Integration tests (opens the timer in windows briefly)"
+      ./build/integration-tests "$FILTER" || integration_status=$?
+    fi
+    exit $(( unit_status || integration_status ))
+  fi
+
+  echo "== Unit and integration tests, $SHARDS at a time (opens the timer in windows briefly)"
+  ./build/unit-tests > build/test-unit.log 2>&1 &
+  unit_run=$!
+  shard_runs=()
+  for i in {0..$((SHARDS - 1))}; do
+    ./build/integration-tests --shard "$i/$SHARDS" > "build/test-integration-$i.log" 2>&1 &
+    shard_runs+=($!)
+  done
+  run_status=0
+  for run in $shard_runs; do wait $run || run_status=$?; done
+  wait $unit_run || run_status=$?
+  # The sound device and a share of one core only mean anything with nothing else going on.
+  echo "== The tests that need the machine to themselves"
+  ./build/integration-tests --serial-only > build/test-integration-alone.log 2>&1 || run_status=$?
+
+  cat build/test-unit.log build/test-integration-*.log
+  passed=$(grep -ho "^[0-9]* passed" build/test-*.log | awk "{ total += \$1 } END { print total + 0 }")
+  failed=$(grep -ho "[0-9]* failed" build/test-*.log | awk "{ total += \$1 } END { print total + 0 }")
+  echo "\n== $passed passed, $failed failed in $((SECONDS - started))s"
+  exit $run_status
 fi
 
 VERSION=1.5.0
