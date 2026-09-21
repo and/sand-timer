@@ -31,9 +31,10 @@ desktop, sitting above whatever you are working in.
   rocks back upright; push too far and it topples over and pauses. Lift a toppled timer
   back up by its top, or pull the top upward to pick it up.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
-  25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), the colour of the sand, the style of the base, how big it is,
-  whether it makes sounds (including an optional gentle chime each minute), whether it starts when you log in, and whether it hides in
-  the menu bar.
+  25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), **Appearance** for the
+  colour of the sand, the style of the base and how big it is, whether it makes sounds
+  (including an optional gentle chime each minute), whether it starts when you log in, and
+  hiding it in the menu bar.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
   you finished, day by day, week by week, month by month and year by year. Hover a bar to
   read that day off. It counts only time the sand was actually running, and it never

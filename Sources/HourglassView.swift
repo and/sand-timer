@@ -780,13 +780,20 @@ final class HourglassView: NSView {
         }
         if lyingAngle == 0 { menu.addItem(item("Flip", #selector(flipClicked))) }
         menu.addItem(item("Restart", #selector(restartClicked)))
+        menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))  // something to do with the timer, not a setting
         menu.addItem(.separator())
 
+        // Duration is chosen often enough to stay to hand; how the timer looks is set once and then left alone.
         let durations = Self.durations.map { ($0 == Self.pomodoroMinutes ? "\($0) min 🍅" : "\($0) min", $0, $0 == minutes) }
         menu.addItem(submenu("Duration", durations, #selector(durationPicked)))
-        menu.addItem(submenu("Color", Theme.colors.enumerated().map { ($1.name, $0, $0 == themeIndex) }, #selector(themePicked)))
-        menu.addItem(submenu("Base", Theme.Base.allCases.map { ($0.name, $0.rawValue, $0 == base) }, #selector(basePicked)))
-        menu.addItem(submenu("Size", Self.sizes.enumerated().map { ($1.name, $0, $0 == sizeIndex) }, #selector(sizePicked)))
+        let appearance = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
+        let looks = NSMenu()
+        looks.autoenablesItems = false
+        looks.addItem(submenu("Color", Theme.colors.enumerated().map { ($1.name, $0, $0 == themeIndex) }, #selector(themePicked)))
+        looks.addItem(submenu("Base", Theme.Base.allCases.map { ($0.name, $0.rawValue, $0 == base) }, #selector(basePicked)))
+        looks.addItem(submenu("Size", Self.sizes.enumerated().map { ($1.name, $0, $0 == sizeIndex) }, #selector(sizePicked)))
+        appearance.submenu = looks
+        menu.addItem(appearance)
         menu.addItem(.separator())
 
         let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
@@ -805,7 +812,6 @@ final class HourglassView: NSView {
         let float = item("Float Anywhere", #selector(floatToggled))
         float.state = floats ? .on : .off
         menu.addItem(float)
-        menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))
         menu.addItem(.separator())
         menu.addItem(item("Statistics…", #selector(statsClicked)))
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))

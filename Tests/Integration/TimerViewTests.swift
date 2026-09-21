@@ -291,6 +291,18 @@ func timerViewTests() {
             expect(volumes.map(\.title) == ["Off", "Quiet", "Normal", "Loud"], "got \(volumes.map(\.title))")
             expect(volumes.filter { $0.state == .on }.count == 1, "exactly one is ticked")
         }
+        test("how the timer looks is gathered under Appearance, with the duration left to hand") {
+            let items = TimerHarness(minutes: 25).view.makeMenu().items
+            let titles = items.map(\.title)
+            expect(titles.contains("Duration"), "the duration stays in the menu itself: \(titles)")
+            expect(!titles.contains("Color") && !titles.contains("Base") && !titles.contains("Size"), "the rest moves: \(titles)")
+            let looks = try require(items.first { $0.title == "Appearance" }?.submenu?.items, "the Appearance submenu")
+            expect(looks.map(\.title) == ["Color", "Base", "Size"], "got \(looks.map(\.title))")
+            expect(looks.allSatisfy { $0.submenu?.items.isEmpty == false }, "each opens onto its own choices")
+            let hide = try require(titles.firstIndex(of: "Hide to Menu Bar"), "Hide to Menu Bar")
+            let duration = try require(titles.firstIndex(of: "Duration"), "Duration")
+            expect(hide < duration, "hiding it is something to do with the timer, so it sits with Flip and Restart")
+        }
         test("picking a sand volume changes how loud the sand is, and it can be turned off") {
             let timer = TimerHarness(minutes: 25)
             let wasVolume = timer.view.grainVolume
