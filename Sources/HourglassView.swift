@@ -35,9 +35,15 @@ final class HourglassView: NSView {
     private var base: Theme.Base
     private var sizeIndex: Int
     private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
-    /// How loud the falling and shaken sand is: 0 is off, 1 the usual level. Older settings only said on or off.
-    private(set) var grainVolume = UserDefaults.standard.object(forKey: "grainVolume") as? Double
-        ?? ((UserDefaults.standard.object(forKey: "grainSoundOn") as? Bool ?? true) ? 1 : 0)
+    /// How loud the falling and shaken sand is: 0 is off, 1 the usual level.
+    private(set) var grainVolume = HourglassView.startingGrainVolume()
+
+    /// The sand starts silent: a timer on the desk shouldn't whisper at you until you ask it to, and Sand Sounds in
+    /// the menu is there to turn it up. A volume already chosen is kept, as is an older on/off setting.
+    static func startingGrainVolume(_ defaults: UserDefaults = .standard) -> Double {
+        if let chosen = defaults.object(forKey: "grainVolume") as? Double { return chosen }
+        return defaults.object(forKey: "grainSoundOn") as? Bool == true ? 1 : 0
+    }
     /// The volumes offered in the menu, quietest first.
     static let grainVolumes: [(name: String, volume: Double)] = [("Off", 0), ("Quiet", 0.45), ("Normal", 1), ("Loud", 1.8)]
     private(set) var minuteChimesOn = UserDefaults.standard.bool(forKey: "minuteChimes")
@@ -924,7 +930,7 @@ final class HourglassView: NSView {
 
     @objc private func flipClicked() { flipTimer() }
 
-    @objc private func restartClicked() {
+    @objc func restartClicked() {
         let restart = { [weak self] in
             guard let self else { return }
             clock.restart(at: Date())

@@ -93,7 +93,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         add("Show Sand Timer", #selector(showTimer), target: self)
+        menu.addItem(.separator())
+        // Everything you would do to a running timer, without bringing it back out.
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
+        add("Restart", #selector(restartTimer), target: self)
         menu.addItem(.separator())
         // The sand is silent while the timer is hidden, but the chimes still ring, so the sound settings belong here.
         view?.soundMenuItems().forEach { menu.addItem($0) }
@@ -108,6 +111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePause() {
         view?.togglePause()
+        updateStatusTitle()
+    }
+
+    @objc private func restartTimer() {
+        view?.restartClicked()
         updateStatusTitle()
     }
 

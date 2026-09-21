@@ -3,6 +3,21 @@ import Accelerate
 
 /// Sounds are made in code, so their character can be checked by measuring the samples.
 func soundTests() {
+    suite("Sand sounds to begin with") {
+        test("the sand starts silent, unless a volume or an older setting says otherwise") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
+            for key in ["grainVolume", "grainSoundOn"] { defaults.removeObject(forKey: key) }
+            expect(HourglassView.startingGrainVolume(defaults) == 0, "a fresh install hears no falling sand")
+            defaults.set(true, forKey: "grainSoundOn")
+            expect(HourglassView.startingGrainVolume(defaults) == 1, "someone who had the old sand sounds on keeps them")
+            defaults.set(false, forKey: "grainSoundOn")
+            expect(HourglassView.startingGrainVolume(defaults) == 0)
+            defaults.set(1.8, forKey: "grainVolume")
+            expect(HourglassView.startingGrainVolume(defaults) == 1.8, "a volume already chosen wins")
+            for key in ["grainVolume", "grainSoundOn"] { defaults.removeObject(forKey: key) }
+        }
+    }
+
     let rate = 44_100.0
     let pourOnGlass = Sounds.synthesizeGrains(seconds: 4)
     let pourOnSand = Sounds.synthesizeSoftPour(seconds: 4)
