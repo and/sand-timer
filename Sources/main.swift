@@ -95,6 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Show Sand Timer", #selector(showTimer), target: self)
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
         menu.addItem(.separator())
+        // The sand is silent while the timer is hidden, but the chimes still ring, so the sound settings belong here.
+        view?.soundMenuItems().forEach { menu.addItem($0) }
+        menu.addItem(.separator())
         add("Statistics…", #selector(HourglassView.statsClicked), target: view)
         if let update = UpdateChecker.shared.available {
             add("Update to \(Updates.label(update.version))…", #selector(HourglassView.updateClicked), target: view)

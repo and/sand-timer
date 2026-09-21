@@ -48,7 +48,9 @@ it off the app makes no network calls at all. Both sit at the foot of the menu, 
 the line that says which version you are running.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
-the menu bar and the time left shows up there instead, where you can pause and resume it.
+the menu bar and the time left shows up there instead, where you can pause and resume it
+and change the sounds. Out of sight the sand falls silently — no pouring, no rattle — but
+the chimes still ring.
 
 ## What it does
 

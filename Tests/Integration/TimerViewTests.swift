@@ -341,6 +341,19 @@ func timerViewTests() {
                 expect(timer.panel.frame.size == HourglassView.contentSize(sizeIndex: size))
             }
         }
+        test("the sound settings can be changed from the menu bar's menu too") {
+            let timer = TimerHarness()
+            let wasOn = timer.view.minuteChimesOn
+            defer { if timer.view.minuteChimesOn != wasOn { timer.menu("minuteChimesToggled") } }
+            timer.panel.orderOut(nil)  // tucked away in the menu bar, with no window to right-click
+            let items = timer.view.soundMenuItems()
+            expect(items.map(\.title) == ["Flip, Fall & Finish Sounds", "Sand Sounds", "Minute Chimes"], "got \(items.map(\.title))")
+            expect(items[1].submenu?.items.map(\.title) == ["Off", "Quiet", "Normal", "Loud"])
+            let chimes = items[2]
+            expect(chimes.state == (wasOn ? .on : .off), "shows how they are set")
+            _ = chimes.target?.perform(chimes.action, with: chimes)  // as if picked from the menu bar
+            expect(timer.view.minuteChimesOn != wasOn, "and picking one changes it")
+        }
         test("pause and resume work while the timer is hidden in the menu bar") {
             let timer = TimerHarness()
             timer.click(); timer.run(1.2)

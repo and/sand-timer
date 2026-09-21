@@ -796,14 +796,7 @@ final class HourglassView: NSView {
         menu.addItem(appearance)
         menu.addItem(.separator())
 
-        let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
-        sound.state = soundOn ? .on : .off
-        menu.addItem(sound)
-        let grains = Self.grainVolumes.enumerated().map { ($1.name, $0, $1.volume == grainVolume) }
-        menu.addItem(submenu("Sand Sounds", grains, #selector(grainVolumePicked)))
-        let chimes = item("Minute Chimes", #selector(minuteChimesToggled))
-        chimes.state = minuteChimesOn ? .on : .off
-        menu.addItem(chimes)
+        soundMenuItems().forEach { menu.addItem($0) }
         menu.addItem(.separator())
 
         let login = item("Start at Login", #selector(loginToggled))
@@ -836,6 +829,17 @@ final class HourglassView: NSView {
         quit.target = NSApp
         menu.addItem(quit)
         return menu
+    }
+
+    /// The sound settings, which the menu bar's menu offers too: hidden away there the sand itself falls silently,
+    /// but the chimes still play, so there has to be a way to change them without the timer on screen.
+    func soundMenuItems() -> [NSMenuItem] {
+        let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
+        sound.state = soundOn ? .on : .off
+        let grains = Self.grainVolumes.enumerated().map { ($1.name, $0, $1.volume == grainVolume) }
+        let chimes = item("Minute Chimes", #selector(minuteChimesToggled))
+        chimes.state = minuteChimesOn ? .on : .off
+        return [sound, submenu("Sand Sounds", grains, #selector(grainVolumePicked)), chimes]
     }
 
     private func item(_ title: String, _ action: Selector, tag: Int = 0) -> NSMenuItem {
