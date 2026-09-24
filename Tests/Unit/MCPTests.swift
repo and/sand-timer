@@ -43,7 +43,8 @@ private final class FakeTimer {
     }
 
     var access: SandTimerAccess {
-        SandTimerAccess(log: { record }, state: { self.state }, allowsControl: { self.allowsControl }, send: send)
+        SandTimerAccess(log: { record }, state: { self.state }, allowsControl: { self.allowsControl }, send: send,
+                        moment: { now })
     }
 }
 

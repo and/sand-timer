@@ -20,6 +20,9 @@ struct SandTimerAccess {
     var allowsControl: () -> Bool
     /// Sends a command to the app and waits for it to say what it did.
     var send: (_ command: String, _ minutes: Int?) -> Result<TimerState, Unreachable>
+    /// The moment it is now. Asked for again after a command, which can take a second or two while the app starts
+    /// up, so the time left is counted from when the answer came back rather than when the question arrived.
+    var moment: () -> Date = { Date() }
 }
 
 enum SandTimerMCP {
@@ -125,7 +128,7 @@ enum SandTimerMCP {
             guard access.allowsControl() else { return text(controlOff, isError: true) }
             let command = String(tool.dropFirst("sand_timer_".count))
             switch access.send(command, command == "start" ? arguments["minutes"] as? Int : nil) {
-            case .success(let state): return text(json(describe(state, at: Date())))
+            case .success(let state): return text(json(describe(state, at: access.moment())))
             case .failure(let why): return text(why.reason, isError: true)
             }
         default:
