@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.collectionBehavior = Self.everyDesktop
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if defaults.bool(forKey: "hidden") { hideToMenuBar() } else { panel.orderFrontRegardless() }
         view.publishState()  // so anything reading from outside knows what the timer is doing from the start
         UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
+        keepItOnEveryDesktop()
         // Start at Login is opt-in: ask once, on the first launch, once the timer is on screen.
         if !defaults.bool(forKey: "loginItemConfigured") {
             DispatchQueue.main.async { [weak self] in self?.askAboutStartingAtLogin() }
@@ -64,6 +65,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         view?.flushStatistics()  // the last stretch of sand still counts
+    }
+
+    /// Sitting above your work on whichever desktop you are on.
+    private static let everyDesktop: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+
+    /// Asking for the timer again each time the desktop changes. It should not be necessary — a window that joins
+    /// every Space ought to stay on all of them — but macOS can lose a window's place on one desktop, and then it
+    /// rides in on the switch animation and vanishes a moment later, while the sand keeps running unseen.
+    private func keepItOnEveryDesktop() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, let panel, statusItem == nil else { return }  // nothing to show while it's in the menu bar
+            panel.collectionBehavior = Self.everyDesktop
+            panel.orderFrontRegardless()
+        }
     }
 
     private func askAboutStartingAtLogin() {
