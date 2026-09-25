@@ -80,7 +80,7 @@ it — "how much did I focus this week?", "which days do I actually get deep wor
 "put September's hours in my invoice". Point Claude at it once:
 
 ```sh
-claude mcp add sand-timer -- /Applications/Sand\ Timer.app/Contents/MacOS/sand-timer-mcp
+claude mcp add sand-timer -- /Applications/SandTimer.app/Contents/MacOS/sand-timer-mcp
 ```
 
 It reads what the Statistics window shows — time run and timers finished, by day, week,
