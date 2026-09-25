@@ -196,7 +196,10 @@ final class HourglassView: NSView {
         if soundOn && finished {
             NSSound(named: "Glass")?.play()
         }
-        if finished { publishState() }  // the sand has run out: anything reading from outside should know
+        if finished {
+            sessionStartedAt = nil  // that run is over; the next flip starts another
+            publishState()  // the sand has run out: anything reading from outside should know
+        }
         wasRunning = running
         recordRun(finished: finished, at: now)
         let elapsed = running ? clock.progress(at: now) * clock.duration : nil
@@ -255,6 +258,11 @@ final class HourglassView: NSView {
                 tip.then()
                 letGo()  // tipped over in mid-air: fall the rest of the way
             }
+        }
+
+        if let waiting = awaitingStillness, flip == nil, tip == nil {
+            awaitingStillness = nil
+            waiting()
         }
 
         // How the drag accelerates the timer (including stopping): sideways bends the stream, and hard shakes stir the sand.
@@ -703,6 +711,7 @@ final class HourglassView: NSView {
         clock.flip(at: now)
         releasedAt = nil
         wasRunning = false
+        sessionStartedAt = now
         publishState()
         needsDisplay = true
     }
@@ -955,6 +964,7 @@ final class HourglassView: NSView {
             guard let self else { return }
             clock.restart(at: Date())
             releasedAt = Date()
+            sessionStartedAt = Date()
             publishState()
             topSettledProgress = 0
             bottomSettledProgress = 0
@@ -984,14 +994,20 @@ final class HourglassView: NSView {
 
     /// Whether commands from Claude, Shortcuts or a script are accepted at all.
     private(set) var allowsControl = UserDefaults.standard.bool(forKey: TimerState.controlKey)
+    /// When this run of the sand began. A pause doesn't end it; the sand running out does.
+    private var sessionStartedAt: Date?
+    /// A command that arrived while the glass was still turning or falling, to be carried out once it settles.
+    private var awaitingStillness: (() -> Void)?
 
     /// Writes down what the timer is doing now, so the MCP server can answer without asking the app.
     func publishState() {
         let now = Date()
         var state = TimerState(minutes: minutes, updated: now)
         if clock.isRunning(at: now) {
+            state.started = sessionStartedAt
             state.runningUntil = clock.finishTime
         } else if clock.isPaused(at: now) {
+            state.started = sessionStartedAt
             state.pausedWith = clock.remaining(at: now)
         }
         UserDefaults.standard.set(state.stored, forKey: TimerState.key)
@@ -999,12 +1015,24 @@ final class HourglassView: NSView {
 
     /// Starts a fresh session, optionally of a different length: what `sandtimer://start` asks for.
     func startSession(minutes newMinutes: Int?) {
-        if let newMinutes { setDuration(minutes: newMinutes) }
-        restartClicked()
+        whenStill { [weak self] in
+            if let newMinutes { self?.setDuration(minutes: newMinutes) }
+            self?.restartClicked()
+        }
     }
 
-    func pauseSession() { pauseClicked() }
-    func resumeSession() { resumeClicked() }
+    func pauseSession() { whenStill { [weak self] in self?.pauseClicked() } }
+    func resumeSession() { whenStill { [weak self] in self?.resumeClicked() } }
+
+    /// A hand on the timer waits for it to stop rocking before pressing again; a command arriving from elsewhere
+    /// has no way of knowing, so it waits here instead of being dropped while the glass is mid-turn or mid-fall.
+    private func whenStill(_ command: @escaping () -> Void) {
+        if flip == nil, tip == nil {
+            command()
+        } else {
+            awaitingStillness = command
+        }
+    }
 
     /// Any length from a minute to an hour, which is wider than the menu offers — "start a seven minute timer" is a
     /// reasonable thing to ask for, even if it isn't worth a line in the menu.

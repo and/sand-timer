@@ -46,6 +46,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | build/SandTimer.app/Cont
 
 Being a nested program, it is signed before the bundle is sealed around it.
 
+The note says when the run began and when it will end, not only how much is left: a run that was paused and
+resumed started earlier than the last thing written down, so leaving the start to be worked out from the remaining
+sand would quietly give the wrong answer. A command that arrives while the glass is mid-turn waits for it to
+settle rather than being dropped — a hand would have waited too.
+
 Commands go the other way as `sandtimer://` links — `start?minutes=25`, `pause`, `resume`,
 `restart` — which the app takes through `application(_:open:)` and only while the menu's
 control setting is on. The app writes what it is doing into `timerState` in its settings

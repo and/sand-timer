@@ -456,11 +456,27 @@ func timerViewTests() {
             let left = running.remaining(at: Date())
             expect(left > 400 && left <= 420, "with the time left, about seven minutes: \(left)")
 
+            let began = try require(running.started, "when the run began")
+            expect(abs(began.timeIntervalSinceNow) < 5, "which was just now: \(began)")
+
             timer.view.pauseSession(); timer.settle()
             let paused = published()
             expect(paused.isPaused(at: Date()) && !paused.isRunning(at: Date()), "written down as paused: \(paused)")
+            expect(paused.started == began, "a pause doesn't restart the run: \(String(describing: paused.started))")
             timer.view.resumeSession(); timer.settle(); timer.run(0.3)
-            expect(published().isRunning(at: Date()), "and running again")
+            let resumed = published()
+            expect(resumed.isRunning(at: Date()), "and running again")
+            expect(resumed.started == began, "nor does standing it back up: \(String(describing: resumed.started))")
+        }
+        test("a command sent while the glass is still turning waits, rather than being lost", serial: true) {
+            let timer = TimerHarness(minutes: 25)
+            timer.view.startSession(minutes: nil)
+            timer.view.pauseSession()          // straight away, while the flip is still turning
+            timer.view.resumeSession()         // and again, while it is tipping over to pause
+            timer.settle(minimum: 1.5); timer.run(1.0)
+            expect(timer.isRunning, "the last word wins, once the glass has settled")
+            let state = TimerState.load(stored: UserDefaults.standard.dictionary(forKey: TimerState.key))
+            expect(state.isRunning(at: Date()), "and it is written down as running: \(state)")
         }
         test("commands are refused until the menu allows them", serial: true) {
             let timer = TimerHarness()

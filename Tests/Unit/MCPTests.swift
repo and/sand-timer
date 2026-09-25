@@ -26,7 +26,8 @@ private let record: SandLog = {
 /// A timer standing there running, and a note of every command it was sent.
 private final class FakeTimer {
     var allowsControl = true
-    var state = TimerState(minutes: 25, runningUntil: now.addingTimeInterval(900), updated: now)
+    var state = TimerState(minutes: 25, started: now.addingTimeInterval(-600), runningUntil: now.addingTimeInterval(900),
+                           updated: now)
     var sent: [(command: String, minutes: Int?)] = []
     var reachable = true
 
@@ -34,9 +35,14 @@ private final class FakeTimer {
         sent.append((command, minutes))
         guard reachable else { return .failure(Unreachable(reason: "Sand Timer didn't answer.")) }
         switch command {
-        case "start": state = TimerState(minutes: minutes ?? state.minutes, runningUntil: now.addingTimeInterval(Double((minutes ?? state.minutes) * 60)), updated: now)
-        case "pause": state = TimerState(minutes: state.minutes, pausedWith: state.remaining(at: now), updated: now)
-        case "resume": state = TimerState(minutes: state.minutes, runningUntil: now.addingTimeInterval(state.remaining(at: now)), updated: now)
+        case "start":
+            let length = minutes ?? state.minutes
+            state = TimerState(minutes: length, started: now, runningUntil: now.addingTimeInterval(Double(length * 60)), updated: now)
+        case "pause":
+            state = TimerState(minutes: state.minutes, started: state.started, pausedWith: state.remaining(at: now), updated: now)
+        case "resume":
+            state = TimerState(minutes: state.minutes, started: state.started,
+                               runningUntil: now.addingTimeInterval(state.remaining(at: now)), updated: now)
         default: break
         }
         return .success(state)
@@ -156,6 +162,10 @@ func mcpTests() {
             expect(status["state"] as? String == "running", "got \(status)")
             expect(status["minutes"] as? Int == 25 && status["remaining_seconds"] as? Int == 900, "got \(status)")
             expect(status["remaining"] as? String == "15m")
+            // Spelled out, so nobody has to guess the start from when the note was last written.
+            expect(status["started_at"] as? String == "2026-09-21T11:50:00Z", "got \(status["started_at"] ?? "nothing")")
+            expect(status["finishes_at"] as? String == "2026-09-21T12:15:00Z", "got \(status["finishes_at"] ?? "nothing")")
+            expect(status["running_for_seconds"] as? Int == 600, "ten minutes in: \(status["running_for_seconds"] ?? "nothing")")
 
             timer.state = TimerState(minutes: 25, pausedWith: 61, updated: now)
             let paused = try fields(try answer("sand_timer_status").text)
@@ -163,6 +173,7 @@ func mcpTests() {
             timer.state = TimerState(minutes: 25, updated: now)
             let idle = try fields(try answer("sand_timer_status").text)
             expect(idle["state"] as? String == "waiting to be flipped" && idle["remaining_seconds"] as? Int == 0, "got \(idle)")
+            expect(idle["started_at"] == nil && idle["finishes_at"] == nil, "nothing is running, so no times: \(idle)")
         }
 
         test("it can start, pause and resume the timer, and says what happened") {
@@ -173,6 +184,9 @@ func mcpTests() {
 
             let paused = try fields(try answer("sand_timer_pause").text)
             expect(paused["state"] as? String == "paused", "got \(paused)")
+            expect(paused["started_at"] as? String == started["started_at"] as? String,
+                   "a pause doesn't restart the run: \(paused["started_at"] ?? "nothing")")
+            expect(paused["finishes_at"] == nil, "and nothing finishes while it is paused")
             expect(timer.sent.last?.minutes == nil, "pause carries no length")
             let resumed = try fields(try answer("sand_timer_resume").text)
             expect(resumed["state"] as? String == "running", "got \(resumed)")

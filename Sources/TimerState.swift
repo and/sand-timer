@@ -10,6 +10,9 @@ struct TimerState: Equatable {
 
     /// How long a flip gives you, in minutes.
     var minutes: Int = 0
+    /// When this run began: the flip or restart that set the sand going. It survives a pause, so it is the start of
+    /// the session rather than of the last stretch of it, and goes when the sand runs out.
+    var started: Date?
     /// When the sand will run out, while it is running.
     var runningUntil: Date?
     /// How much is left, while it is paused.
@@ -34,6 +37,7 @@ struct TimerState: Equatable {
 
     var stored: [String: Any] {
         var entry: [String: Any] = ["minutes": minutes, "updated": updated]
+        if let started { entry["started"] = started }
         if let runningUntil { entry["runningUntil"] = runningUntil }
         if let pausedWith { entry["pausedWith"] = pausedWith }
         return entry
@@ -42,6 +46,7 @@ struct TimerState: Equatable {
     static func load(stored: [String: Any]?) -> TimerState {
         guard let stored else { return TimerState() }
         return TimerState(minutes: stored["minutes"] as? Int ?? 0,
+                          started: stored["started"] as? Date,
                           runningUntil: stored["runningUntil"] as? Date,
                           pausedWith: stored["pausedWith"] as? TimeInterval,
                           updated: stored["updated"] as? Date ?? .distantPast)

@@ -99,7 +99,11 @@ enum SandTimerMCP {
              "description": "The whole record as CSV, the same file the timer's Export button writes: Start, End, seconds, minutes, timers finished.",
              "inputSchema": schema(["period": period])],
             ["name": "sand_timer_status",
-             "description": "What the timer is doing at this moment: running, paused, or waiting to be flipped, how long it is set for, and how much sand is left.",
+             "description": """
+                What the timer is doing at this moment: running, paused or waiting to be flipped, how long it is set \
+                for, how much sand is left, when this run began and when it will finish. Times are given as they are, \
+                so there is no need to work them out from how long is left.
+                """,
              "inputSchema": schema([:])],
             ["name": "sand_timer_start",
              "description": """
@@ -167,12 +171,23 @@ enum SandTimerMCP {
         }
     }
 
-    /// What the timer is doing, as the MCP client sees it.
+    /// What the timer is doing, as the MCP client sees it. The times are spelled out rather than left to be worked
+    /// out from how long is left: a run that was paused and resumed began earlier than the last thing written down.
     private static func describe(_ state: TimerState, at now: Date) -> [String: Any] {
         let left = state.remaining(at: now)
-        return ["state": state.describe(at: now), "minutes": state.minutes,
-                "remaining_seconds": seconds(left), "remaining": SandLog.durationLabel(left),
-                "as_of": state.updated == .distantPast ? "" : ISO8601DateFormatter().string(from: state.updated)]
+        func moment(_ date: Date?) -> String {
+            guard let date, date != .distantPast else { return "" }
+            return ISO8601DateFormatter().string(from: date)
+        }
+        var described: [String: Any] = ["state": state.describe(at: now), "minutes": state.minutes,
+                                        "remaining_seconds": seconds(left), "remaining": SandLog.durationLabel(left),
+                                        "as_of": moment(state.updated)]
+        if let started = state.started, state.isRunning(at: now) || state.isPaused(at: now) {
+            described["started_at"] = moment(started)
+            described["running_for_seconds"] = seconds(now.timeIntervalSince(started))
+        }
+        if state.isRunning(at: now) { described["finishes_at"] = moment(state.runningUntil) }
+        return described
     }
 
     private static func span(_ bucket: SandLog.Bucket, period: SandLog.Period, now: Date,
