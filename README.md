@@ -33,13 +33,18 @@ desktop, sitting above whatever you are working in.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
   25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), **Appearance** for the
   colour of the sand, the style of the base and how big it is, whether it makes sounds
-  (including an optional gentle chime each minute), whether it starts when you log in, and
-  hiding it in the menu bar.
+  (including an optional gentle chime each minute), whether it starts when you log in,
+  whether it stays where you drop it or falls to the bottom of the screen, whether Claude
+  and Shortcuts may work it, and hiding it in the menu bar.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
   you finished, day by day, week by week, month by month and year by year. Hover a bar to
   read that day off. It counts only time the sand was actually running, and it never
   leaves your Mac — unless you ask it to: **Export…** saves the whole record as a CSV
   file, grouped the way you are looking at it, for a spreadsheet or a timesheet.
+
+<p align="center">
+  <img src="docs/statistics.png" width="470" alt="The Statistics window: a Daily, Weekly, Monthly and Yearly picker, today's total of 3h 32m and 8 timers finished, a bar for each of the last fourteen days with today's picked out in a deeper purple, and a line along the bottom reading Since 22 Aug 2025, 750h 36m, 1718 timers finished, beside an Export button">
+</p>
 
 The app checks once a day whether a newer version has been released, and if there is one
 the menu offers it — it only ever opens the release page in your browser, and downloads
