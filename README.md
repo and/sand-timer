@@ -77,11 +77,31 @@ on sand as the pile grows, a rattle while you shake it, and a chime at the end.
 
 The app ships a small MCP server, so Claude can read the record and answer questions about
 it — "how much did I focus this week?", "which days do I actually get deep work done?",
-"put September's hours in my invoice". Point Claude at it once:
+"put September's hours in my invoice". Point Claude at it once.
+
+**Claude Code**, one line:
 
 ```sh
 claude mcp add sand-timer -- /Applications/SandTimer.app/Contents/MacOS/sand-timer-mcp
 ```
+
+**Claude Desktop**: open **Settings → Developer → Edit Config**, which opens
+`~/Library/Application Support/Claude/claude_desktop_config.json`, and add the timer under
+`mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "sand-timer": {
+      "command": "/Applications/SandTimer.app/Contents/MacOS/sand-timer-mcp"
+    }
+  }
+}
+```
+
+If the file already has other servers, add `"sand-timer"` beside them rather than replacing
+the block — and mind the commas, since Claude Desktop ignores the whole file if the JSON is
+invalid. Quit Claude Desktop and open it again; the timer then appears in the tools menu.
 
 It reads what the Statistics window shows — time run and timers finished, by day, week,
 month or year, plus the same CSV the Export button writes — and it can tell you what the
