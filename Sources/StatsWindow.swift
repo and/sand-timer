@@ -75,6 +75,8 @@ final class StatsView: NSView {
     private static let inset: CGFloat = 22
     /// Room kept along the bottom right for the Export button.
     private static let exportWidth: CGFloat = 78
+    /// Room kept along the left for the times the chart is ruled at.
+    private static let axisWidth: CGFloat = 34
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 470, height: 340))
@@ -156,7 +158,7 @@ final class StatsView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let area = chartArea
+        let area = plotArea
         let slot = buckets.isEmpty ? 0 : area.width / CGFloat(buckets.count)
         let index = slot > 0 && area.insetBy(dx: 0, dy: -18).contains(point) ? Int((point.x - area.minX) / slot) : nil
         let inside = index.flatMap { buckets.indices.contains($0) ? $0 : nil }
@@ -182,6 +184,12 @@ final class StatsView: NSView {
                       height: max(20, picker.frame.minY - 18 - 72 - 12 - CGFloat(floor)))
     }
 
+    /// Where the bars themselves go: the chart less the gutter holding the times.
+    private var plotArea: NSRect {
+        let area = chartArea
+        return NSRect(x: area.minX + Self.axisWidth, y: area.minY, width: area.width - Self.axisWidth, height: area.height)
+    }
+
     override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -204,12 +212,26 @@ final class StatsView: NSView {
     }
 
     private func drawChart() {
-        let area = chartArea
+        let area = plotArea
         guard !buckets.isEmpty else { return }
         let slot = area.width / CGFloat(buckets.count)
         let barWidth = min(30, max(4, slot - max(4, slot * 0.28)))
         let radius = min(3, barWidth / 2)
         let most = buckets.map(\.seconds).max() ?? 0
+
+        // Ruled at round amounts of time, so a bar's height can be read without hovering over it.
+        if most > 0 {
+            let step = SandLog.gridStep(for: most)
+            var value = step
+            while value <= most {
+                let y = (area.minY + area.height * CGFloat(value / most)).rounded()
+                NSColor.separatorColor.setFill()
+                NSRect(x: chartArea.minX, y: y, width: area.maxX - chartArea.minX, height: 1).fill()
+                let time = text(SandLog.durationLabel(value), size: 9, color: .tertiaryLabelColor)
+                time.draw(at: NSPoint(x: area.minX - 8 - time.size().width, y: y - time.size().height / 2))
+                value += step
+            }
+        }
 
         for (index, bucket) in buckets.enumerated() {
             let x = area.minX + slot * CGFloat(index) + (slot - barWidth) / 2
@@ -230,7 +252,7 @@ final class StatsView: NSView {
 
         // The line they stand on, then a label under as many bars as will fit without crowding.
         NSColor.separatorColor.setFill()
-        NSRect(x: area.minX, y: area.minY - 1, width: area.width, height: 1).fill()
+        NSRect(x: chartArea.minX, y: area.minY - 1, width: area.maxX - chartArea.minX, height: 1).fill()
         let widest = buckets.map { text($0.label, size: 10, color: .labelColor).size().width }.max() ?? 0
         let every = max(1, Int(((widest + 10) / slot).rounded(.up)))
         for (index, bucket) in buckets.enumerated() where (buckets.count - 1 - index) % every == 0 {

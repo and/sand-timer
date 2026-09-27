@@ -149,6 +149,13 @@ struct SandLog: Equatable {
         return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes / 60)h \(minutes % 60)m"
     }
 
+    /// Round amounts of time to rule a chart with — five minutes up to a day — chosen to give two to four lines.
+    /// A chart ruled every five minutes is a ladder; one ruled once barely says more than no rule at all.
+    static func gridStep(for most: TimeInterval) -> TimeInterval {
+        let ladder: [TimeInterval] = [300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400]
+        return ladder.first { most / $0 <= 4 } ?? ladder[ladder.count - 1]
+    }
+
     /// "5 timers" or "1 timer", for the count that ran all the way out.
     static func timersLabel(_ count: Int) -> String { "\(count) timer" + (count == 1 ? "" : "s") }
 

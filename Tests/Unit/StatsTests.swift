@@ -79,6 +79,18 @@ func statsTests() {
             expect(SandLog.timersLabel(1) == "1 timer" && SandLog.timersLabel(0) == "0 timers")
         }
 
+        test("a chart is ruled at round amounts of time, two to four lines of them") {
+            expect(SandLog.gridStep(for: 25 * 60) == 600, "under half an hour: every ten minutes")
+            expect(SandLog.gridStep(for: 56 * 60) == 900, "under an hour: every quarter of an hour")
+            expect(SandLog.gridStep(for: 3 * 3600 + 31 * 60) == 3600, "a long morning: every hour")
+            expect(SandLog.gridStep(for: 8 * 3600) == 7200, "a working day: every two hours")
+            for most in stride(from: 300.0, to: 200_000, by: 137) {
+                let step = SandLog.gridStep(for: most), lines = (most / step).rounded(.down)
+                expect(most / step <= 4.0001, "\(SandLog.durationLabel(most)) would be ruled \(Int(most / step)) times")
+                expect(lines >= 1, "\(SandLog.durationLabel(most)) would have no line at all")
+            }
+        }
+
         test("an export covers every span since the first day, not just the ones on the chart") {
             var log = SandLog()
             log.add(seconds: 1500, finished: 1, on: day(2026, 1, 2), calendar: calendar)
