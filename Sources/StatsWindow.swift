@@ -174,9 +174,12 @@ final class StatsView: NSView {
 
     // MARK: Drawing
 
-    /// Where the bars stand: between the headline and the row of labels along the bottom.
+    /// Where the bars stand: between the headline and the labels along the bottom, which are two rows deep for a
+    /// daily chart, since each day is named twice — the date, and the initial of the weekday under it.
     private var chartArea: NSRect {
-        NSRect(x: Self.inset, y: 76, width: bounds.width - 2 * Self.inset, height: max(20, picker.frame.minY - 18 - 72 - 12 - 76))
+        let floor = 76 + (buckets.contains { $0.subLabel != nil } ? 13 : 0)
+        return NSRect(x: Self.inset, y: CGFloat(floor), width: bounds.width - 2 * Self.inset,
+                      height: max(20, picker.frame.minY - 18 - 72 - 12 - CGFloat(floor)))
     }
 
     override var isOpaque: Bool { true }
@@ -235,8 +238,14 @@ final class StatsView: NSView {
             let label = text(bucket.label, size: 10, color: lit ? .labelColor : .tertiaryLabelColor)
             // Drawn from a point rather than into a box, so a label is never wrapped onto a second line, and
             // kept inside the chart, so the one under the last bar doesn't run off the edge.
-            let middle = area.minX + slot * (CGFloat(index) + 0.5) - label.size().width / 2
-            label.draw(at: NSPoint(x: min(max(area.minX, middle), area.maxX - label.size().width), y: area.minY - 16))
+            func place(_ line: NSAttributedString, above: CGFloat) {
+                let middle = area.minX + slot * (CGFloat(index) + 0.5) - line.size().width / 2
+                line.draw(at: NSPoint(x: min(max(area.minX, middle), area.maxX - line.size().width), y: area.minY - above))
+            }
+            place(label, above: 16)
+            if let weekday = bucket.subLabel {
+                place(text(weekday, size: 9, color: lit ? .secondaryLabelColor : .tertiaryLabelColor), above: 28)
+            }
         }
     }
 

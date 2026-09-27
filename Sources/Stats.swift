@@ -12,6 +12,8 @@ struct SandLog: Equatable {
     struct Bucket {
         /// Under the bar: the day of the month, the week's first day, the month, the year.
         let label: String
+        /// A second line under that, where it helps: the initial of the weekday, so a daily chart shows its weekends.
+        let subLabel: String?
         /// Spelled out, for the headline: "Today", "Monday 15 Sep", "Week of 8 Sep", "September 2026", "2026".
         let title: String
         let start: Date
@@ -31,6 +33,8 @@ struct SandLog: Equatable {
         /// What the span happening now is called.
         var currentTitle: String { ["Today", "This week", "This month", "This year"][rawValue] }
         fileprivate var labelTemplate: String { ["d", "d MMM", "MMM", "yyyy"][rawValue] }
+        /// Only a day is worth naming twice; a week, month or year has nothing to add underneath.
+        fileprivate var subLabelTemplate: String? { self == .daily ? "EEEEE" : nil }
         fileprivate var titleTemplate: String { ["EEEE d MMM", "d MMM", "MMMM yyyy", "yyyy"][rawValue] }
     }
 
@@ -105,6 +109,7 @@ struct SandLog: Equatable {
         }
 
         let labels = Self.formatter(period.labelTemplate, calendar: calendar)
+        let subLabels = period.subLabelTemplate.map { Self.formatter($0, calendar: calendar) }
         let titles = Self.formatter(period.titleTemplate, calendar: calendar)
         return zip(starts, totals).enumerated().map { index, entry in
             let (start, day) = entry
@@ -113,7 +118,8 @@ struct SandLog: Equatable {
             if period == .weekly { title = "Week of \(title)" }
             if index == last { title = period.currentTitle }
             if index == last - 1 && period == .daily { title = "Yesterday" }
-            return Bucket(label: labels.string(from: start), title: title, start: start, seconds: day.seconds, finished: day.finished)
+            return Bucket(label: labels.string(from: start), subLabel: subLabels?.string(from: start), title: title,
+                          start: start, seconds: day.seconds, finished: day.finished)
         }
     }
 
