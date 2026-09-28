@@ -226,7 +226,8 @@ final class StatsView: NSView {
             while value <= most {
                 let y = (area.minY + area.height * CGFloat(value / most)).rounded()
                 NSColor.separatorColor.setFill()
-                NSRect(x: chartArea.minX, y: y, width: area.maxX - chartArea.minX, height: 1).fill()
+                // The rule starts just after its label, so the two never cross.
+                NSRect(x: area.minX - 4, y: y, width: area.maxX - area.minX + 4, height: 1).fill()
                 let time = text(SandLog.durationLabel(value), size: 9, color: .tertiaryLabelColor)
                 time.draw(at: NSPoint(x: area.minX - 8 - time.size().width, y: y - time.size().height / 2))
                 value += step

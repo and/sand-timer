@@ -61,8 +61,9 @@ both programs so the two always agree about it.
 ## Rendering images
 
 The app draws its own images. `SandTimer --snapshot out.png` renders the view to a
-PNG — it takes `--minutes`, `--progress`, `--theme`, `--base`, `--angle`, `--shake`
-and `--dark` — and `--iconset` renders the app icon at every size macOS asks for,
+PNG — it takes `--minutes`, `--progress`, `--theme`, `--base`, `--angle`, `--shake`,
+`--hover` (the day's figure on the base, as when the pointer rests there) and `--dark` —
+and `--iconset` renders the app icon at every size macOS asks for,
 which is where `AppIcon.icns` comes from. The images in the README were made that way.
 
 The animation is the same renderer run across a range of `--progress` values and

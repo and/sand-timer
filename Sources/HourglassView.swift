@@ -144,6 +144,8 @@ final class HourglassView: NSView {
     var onHide: (() -> Void)?
     /// Snapshot only: angles past the slide threshold show a flip in progress; smaller ones bend the stream.
     var previewAngle: Double?
+    /// Snapshot only: shows the day's figure on the base as if the pointer rested there.
+    var previewGoalFigure = false
     /// Snapshot only: how stirred up the sand looks.
     var previewAgitation: Double?
 
@@ -154,7 +156,6 @@ final class HourglassView: NSView {
         self.sizeIndex = Self.sizes.indices.contains(sizeIndex) ? sizeIndex : 1
         clock = SandClock(duration: TimeInterval(self.minutes * 60))
         super.init(frame: NSRect(origin: .zero, size: Self.contentSize(sizeIndex: self.sizeIndex)))
-        placeGoalToolTip()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -345,7 +346,8 @@ final class HourglassView: NSView {
         let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
         if tip == nil && lean == nil { setExpanded(flip != nil || lyingAngle != 0) }
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
-        let settling = displaySwitchingOn
+        let settling = displaySwitchingOn || goalHoverChanging(at: now)
+        if let goalHover, !goalHover.over, !goalHoverChanging(at: now) { self.goalHover = nil }
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
         let animating = running || moving || settling || trailing
         let interval = Self.redrawInterval(inMotion: inMotion || settling,
@@ -442,6 +444,8 @@ final class HourglassView: NSView {
         func ease(_ t: Double) -> Double { let x = min(1, max(0, t)); return x * x * (3 - 2 * x) }
         var display = BaseDisplay(text: clock.remainingLabel(progress: frame.progress), goal: dailyGoalFraction,
                               goalTicks: SandLog.goalTicks(target: TimeInterval(dailyTargetMinutes * 60)))
+        display.goalFigure = dailyGoalLabel
+        display.goalFigureOpacity = previewGoalFigure ? 1 : (flip == nil ? goalHoverOpacity(at: now) : 0)
         if let flip {
             display.brightness = 1 - ease(now.timeIntervalSince(flip.start) / Self.displayFade)
             display.rotation = -angle
@@ -690,12 +694,16 @@ final class HourglassView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
                                        owner: self))
     }
 
     override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
-    override func mouseMoved(with event: NSEvent) { updateCursor(event) }
+    override func mouseMoved(with event: NSEvent) {
+        updateCursor(event)
+        updateGoalHover(at: convert(event.locationInWindow, from: nil))
+    }
+    override func mouseExited(with event: NSEvent) { updateGoalHover(at: nil) }
 
     /// An open hand over the top cap shows it can be pushed to tilt the timer.
     private func updateCursor(_ event: NSEvent) {
@@ -1090,26 +1098,58 @@ final class HourglassView: NSView {
         return log.seconds(on: Date()) / TimeInterval(dailyTargetMinutes * 60)
     }
 
-    /// Hovering over the base plate says what the line along it stands for: "21:18/60:00 today · 35%".
-    private var goalToolTip: NSView.ToolTipTag?
+    /// While the pointer rests on the base plate, the day's figure is printed above the line: "21:18/3:00:00". It fades
+    /// in after a moment, so passing over the timer doesn't flash it, and out again as the pointer leaves.
+    private var goalHover: (since: Date, over: Bool)?
+    private static let goalHoverDelay = 0.25
+    private static let goalHoverFade = 0.2
 
-    /// The tooltip covers the base plate as it is when the timer stands upright, and follows the view's size.
-    private func placeGoalToolTip() {
-        if let goalToolTip { removeToolTip(goalToolTip) }
+    /// How strongly the hover figure is showing, 0 to 1.
+    private func goalHoverOpacity(at now: Date) -> Double {
+        guard let goalHover else { return 0 }
+        func ease(_ t: Double) -> Double { let x = min(1, max(0, t)); return x * x * (3 - 2 * x) }
+        return goalHover.over
+            ? ease((now.timeIntervalSince(goalHover.since) - Self.goalHoverDelay) / Self.goalHoverFade)
+            : 1 - ease(now.timeIntervalSince(goalHover.since) / Self.goalHoverFade)
+    }
+
+    /// Whether the hover figure is fading in or out, which needs the timer redrawn even when the sand is still.
+    private func goalHoverChanging(at now: Date) -> Bool {
+        guard let goalHover else { return false }
+        return now.timeIntervalSince(goalHover.since) < (goalHover.over ? Self.goalHoverDelay : 0) + Self.goalHoverFade
+    }
+
+    /// The base plate, standing up, in the view's own coordinates: where hovering shows the day's figure.
+    func isOnBasePlate(_ point: CGPoint) -> Bool {
         let scale = Self.sizes[sizeIndex].scale
-        let plate = NSRect(x: bounds.midX - 93 * scale, y: bounds.midY + 177 * scale, width: 186 * scale, height: 23 * scale)
-        goalToolTip = addToolTip(plate, owner: self, userData: nil)
+        return abs(point.x - bounds.midX) <= 93 * scale
+            && point.y >= bounds.midY + 177 * scale && point.y <= bounds.midY + 200 * scale
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        placeGoalToolTip()
+    /// Notes the pointer arriving on or leaving the base plate. Only while there is a target and the timer is standing
+    /// still — a figure appearing mid-flip would only be in the way.
+    private func updateGoalHover(at point: CGPoint?) {
+        let still = flip == nil && tip == nil && lean == nil && lyingAngle == 0 && drag == nil && drop == nil
+        let over = dailyTargetMinutes > 0 && still && point.map(isOnBasePlate) == true
+        let now = Date()
+        if over == (goalHover?.over ?? false) { return }
+        if over {
+            goalHover = (now, true)
+        } else if goalHover != nil {
+            // Fade out from however far it had got.
+            let shown = goalHoverOpacity(at: now)
+            goalHover = shown > 0 ? (now.addingTimeInterval(-(1 - shown) * Self.goalHoverFade), false) : nil
+        }
+        needsDisplay = true
     }
 
-    /// What the tooltip over the base plate says; nothing at all when there is no target.
-    var goalToolTipText: String {
-        guard let label = dailyGoalLabel, let fraction = dailyGoalFraction else { return "" }
-        return "\(label) today · \(Int((fraction * 100).rounded()))%"
+    /// Whether the day's figure is showing over the base: tests look here.
+    var showsGoalFigure: Bool { goalHoverOpacity(at: Date()) > 0.5 }
+
+    /// Stands in for the pointer resting on the base plate, or leaving it: for tests.
+    func hoverBasePlate(_ over: Bool) {
+        let scale = Self.sizes[sizeIndex].scale
+        updateGoalHover(at: over ? CGPoint(x: bounds.midX, y: bounds.midY + 190 * scale) : nil)
     }
 
     var startsAtLogin: Bool { SMAppService.mainApp.status == .enabled }
@@ -1304,11 +1344,5 @@ final class HourglassView: NSView {
         guard let window else { return }
         let frame = expansion.map { window.frame.insetBy(dx: $0.dx, dy: $0.dy) } ?? window.frame
         UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: "origin")
-    }
-}
-
-extension HourglassView: NSViewToolTipOwner {
-    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
-        goalToolTipText
     }
 }

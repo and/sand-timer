@@ -461,25 +461,43 @@ func timerViewTests() {
             timer.view.setDailyTarget(minutes: -5)
             expect(timer.view.dailyGoalLabel == nil, "and a negative one means none")
         }
-        test("the base plate says what its line stands for when hovered, and the line is drawn") {
+        test("the line is drawn along the base once there is a target") {
             let timer = TimerHarness()
             let before = timer.view.dailyTargetMinutes
             defer { timer.view.setDailyTarget(minutes: before) }
-            func base() throws -> [UInt8] {
+            func plate() throws -> [UInt8] {
                 let rep = try require(timer.view.bitmapImageRepForCachingDisplay(in: timer.view.bounds), "a bitmap")
                 timer.view.cacheDisplay(in: timer.view.bounds, to: rep)
                 let data = try require(rep.bitmapData, "pixels")
-                let row = Int(timer.view.bounds.midY / timer.view.bounds.height * CGFloat(rep.pixelsHigh) + 190 * timer.scale * CGFloat(rep.pixelsHigh) / timer.view.bounds.height)
-                let start = row * rep.bytesPerRow
-                return Array(UnsafeBufferPointer(start: data + start, count: rep.bytesPerRow))
+                let perUnit = CGFloat(rep.pixelsHigh) / timer.view.bounds.height
+                let top = Int((timer.view.bounds.midY + 178 * timer.scale) * perUnit), bottom = Int((timer.view.bounds.midY + 198 * timer.scale) * perUnit)
+                return Array(UnsafeBufferPointer(start: data + top * rep.bytesPerRow, count: (bottom - top) * rep.bytesPerRow))
             }
             timer.view.setDailyTarget(minutes: 0)
-            let bare = try base()
-            expect(timer.view.goalToolTipText == "", "nothing to say without a target")
-            timer.view.setDailyTarget(minutes: 1)
-            let ruled = try base()
-            expect(bare != ruled, "the line is drawn along the base once there is a target")
-            expect(timer.view.goalToolTipText.contains("/1:00 today"), "and hovering says how far along: \(timer.view.goalToolTipText)")
+            let bare = try plate()
+            timer.view.setDailyTarget(minutes: 60)
+            let ruled = try plate()
+            expect(bare != ruled, "the line is drawn along the base")
+        }
+        test("resting the pointer on the base prints the day's figure over the line, and leaving takes it away") {
+            let timer = TimerHarness()
+            let before = timer.view.dailyTargetMinutes
+            defer { timer.view.setDailyTarget(minutes: before) }
+            timer.view.setDailyTarget(minutes: 180)
+            expect(!timer.view.showsGoalFigure, "nothing until the pointer comes")
+            timer.view.hoverBasePlate(true)
+            timer.run(0.1)
+            expect(!timer.view.showsGoalFigure, "not the instant it passes over")
+            timer.run(0.6)
+            expect(timer.view.showsGoalFigure, "but once it rests there")
+            expect(timer.view.dailyGoalLabel?.hasSuffix("/3:00:00") == true, "reading against three hours: \(timer.view.dailyGoalLabel ?? "")")
+            timer.view.hoverBasePlate(false)
+            timer.run(0.5)
+            expect(!timer.view.showsGoalFigure, "gone once it leaves")
+            timer.view.setDailyTarget(minutes: 0)
+            timer.view.hoverBasePlate(true)
+            timer.run(0.7)
+            expect(!timer.view.showsGoalFigure, "and never without a target")
         }
         test("running the timer moves today's progress") {
             let timer = TimerHarness()

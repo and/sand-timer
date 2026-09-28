@@ -78,6 +78,9 @@ struct BaseDisplay {
     var goal: Double?
     /// Where marks fall along that line, as fractions of the target.
     var goalTicks: [Double] = []
+    /// The day's figure, "21:18/3:00:00", printed above the line while the pointer rests on the base plate.
+    var goalFigure: String?
+    var goalFigureOpacity: Double = 0
 }
 
 /// Draws the timer in a 200 x 400 unit space (y grows downward, neck at y = 200).
@@ -662,8 +665,10 @@ final class HourglassRenderer {
             ctx.restoreGState()
         }
 
+        // While hovered, the line gives way to the figure it stands for, printed across the plate where it was.
+        let figureShown = display.goalFigure == nil ? 0 : CGFloat(min(1, max(0, display.goalFigureOpacity)))
         ctx.saveGState()
-        ctx.setAlpha(CGFloat(display.brightness))
+        ctx.setAlpha(CGFloat(display.brightness) * (1 - figureShown))
         let whole = curve(to: right)
         // Pressed into the plastic: light catches the lower lip, and the upper edge falls into shadow.
         stroke(curve(to: right, drop: 0.9), width: width, NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4))
@@ -711,6 +716,40 @@ final class HourglassRenderer {
             ctx.setLineCap(.round)
             ctx.setStrokeColor(NSColor(white: 1, alpha: 0.38).cgColor)
             ctx.strokePath()
+            ctx.restoreGState()
+        }
+        // The day's figure, printed across the plate in place of the line while hovered, in the same pressed-in style
+        // and nearly the same size as the time above it.
+        if let figure = display.goalFigure, figureShown > 0.01 {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: figure, attributes: [.font: font]))
+            let textWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            let baseline = 388.5 + font.capHeight / 2  // centred on the plate
+            let glyphs = CGMutablePath()
+            for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                let count = CTRunGetGlyphCount(run)
+                var ids = [CGGlyph](repeating: 0, count: count)
+                var positions = [CGPoint](repeating: .zero, count: count)
+                CTRunGetGlyphs(run, CFRange(), &ids)
+                CTRunGetPositions(run, CFRange(), &positions)
+                let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName as String] as! CTFont
+                for i in 0..<count {
+                    guard let outline = CTFontCreatePathForGlyph(runFont, ids[i], nil) else { continue }
+                    glyphs.addPath(outline, transform: CGAffineTransform(translationX: cx - textWidth / 2 + positions[i].x, y: baseline).scaledBy(x: 1, y: -1))
+                }
+            }
+            ctx.saveGState()
+            ctx.setAlpha(CGFloat(display.brightness) * figureShown)
+            for (offset, color) in [(CGFloat(0.5), NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4)),
+                                    (CGFloat(-0.4), NSColor(white: 0, alpha: theme.darkCap ? 0.5 : 0.25)),
+                                    (CGFloat(0), theme.displayInk)] {
+                ctx.saveGState()
+                ctx.translateBy(x: 0, y: offset)
+                ctx.addPath(glyphs)
+                ctx.setFillColor(color.cgColor)
+                ctx.fillPath()
+                ctx.restoreGState()
+            }
             ctx.restoreGState()
         }
         // Fine marks cut across the groove, so the fill can be read against a scale. Etched: a dark notch with the

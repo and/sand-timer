@@ -219,6 +219,7 @@ func renderSnapshot(_ args: [String]) throws {
     view.setPreview(progress: Double(value("--progress") ?? "") ?? 0.35, running: !args.contains("--stopped"))
     view.previewAngle = value("--angle").flatMap(Double.init)
     view.previewAgitation = value("--shake").flatMap(Double.init)
+    view.previewGoalFigure = args.contains("--hover")  // the day's figure in place of the line, as when hovered
     if let angle = view.previewAngle, abs(angle) > SandPhysics.slideThreshold {  // room for a turning glass
         let side = hypot(view.frame.width, view.frame.height).rounded(.up)
         view.frame.size = NSSize(width: side, height: side)
