@@ -180,6 +180,64 @@ func statsTests() {
             expect(aged.days["2026-09-20"]?.hours.isEmpty == false, "recent hours kept")
         }
 
+        test("time is kept by project id, beside the totals, and older time counts as no project") {
+            var log = SandLog()
+            log.add(seconds: 600, project: "a", on: now, calendar: calendar)
+            log.add(seconds: 300, finished: 1, project: "b", on: now, calendar: calendar)
+            log.add(seconds: 120, on: now, calendar: calendar)
+            let today = try require(log.days[SandLog.dayKey(now, calendar: calendar)], "today")
+            expect(today.seconds == 1020 && today.finished == 1, "the totals hold everything")
+            expect(today.byProject["a"]?.seconds == 600 && today.byProject["b"]?.finished == 1 && today.byProject[""]?.seconds == 120)
+            let bucket = try require(log.buckets(.daily, at: now, calendar: calendar).last, "today's bar")
+            expect(bucket.projects["a"]?.seconds == 600 && bucket.projects[""]?.seconds == 120)
+            let hour = try require(log.buckets(.hourly, at: now, calendar: calendar).last, "this hour")
+            expect(hour.projects["b"]?.seconds == 300, "and hour by hour")
+
+            let older = SandLog.load(stored: ["2026-09-01": ["seconds": 300.0, "finished": 1]])
+            expect(older.days["2026-09-01"]?.byProject[""] == SandLog.Tally(seconds: 300, finished: 1), "from before projects")
+        }
+
+        test("renaming or recolouring a project leaves its time where it was") {
+            var log = SandLog()
+            log.add(seconds: 600, project: "a", on: now, calendar: calendar)
+            var list = ProjectList(all: [Project(id: "a", name: "Client A", color: "#2876E2")])
+            list.all[0].name = "Client Alpha"
+            list.all[0].color = "#FF0000"
+            expect(log.buckets(.daily, at: now, calendar: calendar).last?.projects["a"]?.seconds == 600)
+            expect(log.csv(.daily, at: now, projects: list, calendar: calendar).contains("\"Client Alpha (minutes)\""))
+        }
+
+        test("narrowed to one project, the record holds only its time") {
+            var log = SandLog()
+            log.add(seconds: 600, project: "a", on: now, calendar: calendar)
+            log.add(seconds: 300, finished: 1, project: "b", on: day(2026, 9, 19), calendar: calendar)
+            let a = log.only(project: "a")
+            expect(a.allTime.seconds == 600 && a.allTime.finished == 0)
+            expect(a.buckets(.hourly, at: now, calendar: calendar).last?.seconds == 600)
+            expect(log.only(project: "b").buckets(.daily, at: now, calendar: calendar).last?.seconds == 0)
+        }
+
+        test("an export adds a column per project once projects are used, and none before") {
+            var log = SandLog()
+            log.add(seconds: 600, on: now, calendar: calendar)
+            expect(log.csv(.daily, at: now, calendar: calendar).split(separator: "\n").first?.split(separator: ",").count == 5)
+            log.add(seconds: 1200, project: "a", on: now, calendar: calendar)
+            let list = ProjectList(all: [Project(id: "a", name: "Client, \"A\"", color: "#2876E2")])
+            let rows = log.csv(.daily, at: now, projects: list, calendar: calendar).split(separator: "\n").map(String.init)
+            expect(rows[0].hasSuffix(",\"Client, \"\"A\"\" (minutes)\",\"No project (minutes)\""), "quoted as a spreadsheet expects: \(rows[0])")
+            expect(rows.last?.hasSuffix(",1800,30.0,0,20.0,10.0") == true, "got \(rows.last ?? "")")
+        }
+
+        test("projects survive a restart, day and hour") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
+            defer { defaults.removeObject(forKey: SandLog.defaultsKey) }
+            var log = SandLog()
+            log.add(seconds: 600, finished: 1, project: "a", on: now, calendar: calendar)
+            log.add(seconds: 60, on: now, calendar: calendar)
+            log.save(to: defaults)
+            expect(SandLog.load(from: defaults) == log)
+        }
+
         test("the record survives a restart") {
             let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
             defaults.removeObject(forKey: SandLog.defaultsKey)

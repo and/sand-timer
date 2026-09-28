@@ -154,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Everything you would do to a running timer, without bringing it back out.
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
         add("Restart", #selector(restartTimer), target: self)
+        if let project = view?.projectMenuItem() { menu.addItem(project) }  // switching project needs no timer on screen
         menu.addItem(.separator())
         // The sand is silent while the timer is hidden, but the chimes still ring, so the sound settings belong here.
         view?.soundMenuItems().forEach { menu.addItem($0) }

@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct Statistics {
     var log: SandLog
     var sand: NSColor
+    var projects = ProjectList()
 }
 
 /// A small window of what the timer has done: time run and timers finished, grouped by hour, day, week, month or year.
@@ -67,10 +68,23 @@ final class StatsView: NSView {
     private var total = SandLog.Day()
     private var since: Date?
     private var sand = NSColor.systemPurple
+    private var projects = ProjectList()
+    /// Whether any time has been counted against a project: only then do bars split by project, and the legend,
+    /// breakdown and filter appear. Someone who never makes a project sees the window exactly as before.
+    private var usesProjects = false
+    /// The project the window is narrowed to: nil for all of them, "" for time with no project.
+    private(set) var filter: String? = UserDefaults.standard.string(forKey: "statsProject")
     /// The bar under the pointer, whose span the headline then describes instead of the current one.
     private var hovered: Int?
     private let picker = NSSegmentedControl()
     private let export = NSButton(title: "Export…", target: nil, action: nil)
+    let projectFilter = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// The filter's choices, as project ids ("" for no project), in the order the menu lists them after All Projects.
+    private var filterChoices: [String] = []
+
+    /// Extra height the window takes on when projects are in use: a breakdown under the headline, a legend under the bars.
+    private static let projectRoom: CGFloat = 36
+    static let baseHeight: CGFloat = 340
 
     private static let inset: CGFloat = 22
     /// Room kept along the bottom right for the Export button.
@@ -97,6 +111,48 @@ final class StatsView: NSView {
         export.target = self
         export.action = #selector(exportClicked)
         addSubview(export)
+        projectFilter.controlSize = .small
+        projectFilter.font = .systemFont(ofSize: 11)
+        projectFilter.target = self
+        projectFilter.action = #selector(filterPicked)
+        projectFilter.isHidden = true
+        addSubview(projectFilter)
+    }
+
+    @objc private func filterPicked() {
+        let index = projectFilter.indexOfSelectedItem
+        filter = index <= 0 || index - 1 >= filterChoices.count ? nil : filterChoices[index - 1]
+        if let filter { UserDefaults.standard.set(filter, forKey: "statsProject") } else { UserDefaults.standard.removeObject(forKey: "statsProject") }
+        hovered = nil
+        reload()
+    }
+
+    /// Narrows the window to one project (nil for all): what picking from the filter does. Tests call it directly.
+    func show(project: String?) {
+        filter = project
+        reload()
+        projectFilter.selectItem(at: project.flatMap { filterChoices.firstIndex(of: $0) }.map { $0 + 1 } ?? 0)
+    }
+
+    /// Rebuilds the filter's menu when the projects change: All Projects, each project in use, then No Project.
+    private func rebuildFilter(ids: Set<String>) {
+        let choices = SandLog.ordered(ids.union(projects.visible.map(\.id)), by: projects)
+        let titles = ["All Projects"] + choices.map { projects.name(of: $0) }
+        guard choices != filterChoices || projectFilter.itemTitles != titles else { return }
+        filterChoices = choices
+        projectFilter.removeAllItems()
+        projectFilter.addItems(withTitles: titles)
+        for (index, id) in choices.enumerated() {
+            projectFilter.item(at: index + 1)?.image = HourglassView.swatch(color(of: id))
+        }
+        if let filter, !choices.contains(filter) { self.filter = nil }
+        projectFilter.selectItem(at: filter.flatMap { choices.firstIndex(of: $0) }.map { $0 + 1 } ?? 0)
+    }
+
+    /// A project's colour as it is now; time with no project is a quiet grey once projects are in use.
+    private func color(of id: String) -> NSColor {
+        if id.isEmpty { return usesProjects ? .systemGray : sand }
+        return projects.project(id).flatMap { NSColor(hex: $0.color) } ?? .systemGray
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -111,7 +167,9 @@ final class StatsView: NSView {
     /// Saves the whole record as a CSV file, grouped the way the window is showing it — not just the spans on
     /// screen, but every one from the first day the sand ran.
     @objc private func exportClicked() {
-        let csv = source().log.csv(period, at: Date())
+        let statistics = source()
+        let log = filter.map { statistics.log.only(project: $0) } ?? statistics.log
+        let csv = log.csv(period, at: Date(), projects: statistics.projects)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = SandLog.exportFilename(at: Date())
@@ -135,17 +193,34 @@ final class StatsView: NSView {
     func reload() {
         let statistics = source()
         sand = statistics.sand
-        buckets = statistics.log.buckets(period, at: Date())
-        total = statistics.log.allTime
-        since = statistics.log.firstDay()
+        projects = statistics.projects
+        let ids = statistics.log.projectIDs
+        usesProjects = ids.contains { !$0.isEmpty } || !projects.visible.isEmpty
+        if usesProjects { rebuildFilter(ids: ids) } else { filter = nil }
+        projectFilter.isHidden = !usesProjects
+        let log = filter.map { statistics.log.only(project: $0) } ?? statistics.log
+        buckets = log.buckets(period, at: Date())
+        total = log.allTime
+        since = log.firstDay()
         export.isEnabled = total.seconds > 0 || total.finished > 0  // nothing to save until the sand has run
+        fitWindow()
         needsDisplay = true
+    }
+
+    /// Taller while projects are in use, keeping the window's top edge where it is.
+    private func fitWindow() {
+        let height = Self.baseHeight + (usesProjects ? Self.projectRoom : 0)
+        guard let window, abs(bounds.height - height) > 0.5 else { return }
+        var frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: bounds.width, height: height))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        window.setFrame(frame, display: true)
     }
 
     override func layout() {
         super.layout()
         picker.frame = NSRect(x: Self.inset, y: bounds.height - 42, width: bounds.width - 2 * Self.inset, height: 24)
         export.frame = NSRect(x: bounds.width - Self.inset - Self.exportWidth, y: 18, width: Self.exportWidth, height: 22)
+        projectFilter.frame = NSRect(x: bounds.width - Self.inset - 160, y: picker.frame.minY - 18 - 22, width: 160, height: 22)
     }
 
     // MARK: Following the pointer
@@ -179,9 +254,11 @@ final class StatsView: NSView {
     /// Where the bars stand: between the headline and the labels along the bottom, which are two rows deep for a
     /// daily chart, since each day is named twice — the date, and the initial of the weekday under it.
     private var chartArea: NSRect {
-        let floor = 76 + (buckets.contains { $0.subLabel != nil } ? 13 : 0)
+        // With projects in use, a legend sits under the labels and a breakdown under the headline.
+        let floor = 76 + (buckets.contains { $0.subLabel != nil } ? 13 : 0) + (usesProjects ? 18 : 0)
+        let headline: CGFloat = 72 + (usesProjects ? 18 : 0)
         return NSRect(x: Self.inset, y: CGFloat(floor), width: bounds.width - 2 * Self.inset,
-                      height: max(20, picker.frame.minY - 18 - 72 - 12 - CGFloat(floor)))
+                      height: max(20, picker.frame.minY - 18 - headline - 12 - CGFloat(floor)))
     }
 
     /// Where the bars themselves go: the chart less the gutter holding the times.
@@ -206,9 +283,42 @@ final class StatsView: NSView {
         let finished = shown?.finished ?? 0
         text("\(SandLog.timersLabel(finished)) finished", size: 12, color: .secondaryLabelColor)
             .draw(in: NSRect(x: Self.inset, y: headline - 72, width: width, height: 16))
+        if usesProjects, let shown { breakdown(shown).draw(in: NSRect(x: Self.inset, y: headline - 90, width: width, height: 16)) }
 
         drawChart()
+        if usesProjects { drawLegend() }
         drawFooter()
+    }
+
+    /// The projects in a span by time spent, each with a dot in its colour: "● Client A 40m · ● Writing 20m".
+    private func breakdown(_ bucket: SandLog.Bucket) -> NSAttributedString {
+        let line = NSMutableAttributedString()
+        let parts = bucket.projects.filter { $0.value.seconds >= 1 }.sorted { $0.value.seconds > $1.value.seconds }
+        for (index, part) in parts.enumerated() {
+            if index > 0 { line.append(text("  ·  ", size: 12, color: .tertiaryLabelColor)) }
+            line.append(text("● ", size: 12, color: color(of: part.key)))
+            line.append(text("\(projects.name(of: part.key)) \(SandLog.durationLabel(part.value.seconds))", size: 12, color: .secondaryLabelColor))
+        }
+        if parts.isEmpty { line.append(text(" ", size: 12, color: .secondaryLabelColor)) }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        line.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: line.length))
+        return line
+    }
+
+    /// Under the bars: a dot and a name for each project with time in view, in the order they were made.
+    private func drawLegend() {
+        let shown = Set(buckets.flatMap { $0.projects.filter { $0.value.seconds >= 1 }.keys })
+        var x = Self.inset + Self.axisWidth
+        let y = chartArea.minY - (buckets.contains { $0.subLabel != nil } ? 13 : 0) - 38
+        for id in SandLog.ordered(shown, by: projects) {
+            let entry = NSMutableAttributedString(attributedString: text("● ", size: 11, color: color(of: id)))
+            entry.append(text(projects.name(of: id), size: 11, color: .secondaryLabelColor))
+            let width = entry.size().width
+            guard x + width <= bounds.width - Self.inset else { break }
+            entry.draw(at: NSPoint(x: x, y: y))
+            x += width + 14
+        }
     }
 
     private func drawChart() {
@@ -245,9 +355,25 @@ final class StatsView: NSView {
                 let height = max(3, area.height * CGFloat(bucket.seconds / most))
                 let current = index == buckets.count - 1
                 let lit = hovered == index || (hovered == nil && current)
-                sand.withAlphaComponent(lit ? 1 : 0.6).setFill()
-                NSBezierPath(roundedRect: NSRect(x: x, y: area.minY, width: barWidth, height: height),
-                             xRadius: radius, yRadius: radius).fill()
+                let bar = NSRect(x: x, y: area.minY, width: barWidth, height: height)
+                if usesProjects {
+                    // Stacked by project, untagged time at the foot, inside the bar's rounded outline.
+                    NSGraphicsContext.saveGraphicsState()
+                    NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius).addClip()
+                    var y = bar.minY
+                    let ids = SandLog.ordered(Set(bucket.projects.keys), by: projects)
+                    for id in ids.filter(\.isEmpty) + ids.filter({ !$0.isEmpty }) {
+                        let part = CGFloat((bucket.projects[id]?.seconds ?? 0) / max(1, bucket.seconds)) * height
+                        guard part > 0 else { continue }
+                        color(of: id).withAlphaComponent(lit ? 1 : 0.6).setFill()
+                        NSRect(x: bar.minX, y: y, width: bar.width, height: part).fill()
+                        y += part
+                    }
+                    NSGraphicsContext.restoreGraphicsState()
+                } else {
+                    sand.withAlphaComponent(lit ? 1 : 0.6).setFill()
+                    NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius).fill()
+                }
             }
         }
 

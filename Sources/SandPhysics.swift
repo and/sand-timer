@@ -443,6 +443,47 @@ struct StreamLean {
 /// How stirred up the sand is: 0 = still, 1 = grains leaping off the heaps.
 /// Friction holds a heap until the glass accelerates harder than the sand's slope can resist (g · tan(repose));
 /// shaking beyond that, or the jolt of landing after a drop, throws grains up and shakes the heaps flatter.
+/// A deliberate shake, as opposed to moving the timer about: the hand reversing direction briskly, several times in
+/// quick succession. It switches to the next project marked for shaking.
+struct ShakeGesture {
+    /// Reversals that make a shake: left-right-left-right is three.
+    static let reversals = 3
+    /// Seconds they must all fall within.
+    static let window = 1.2
+    /// Seconds after a shake before another can count, so one long shake is one switch.
+    static let cooldown = 1.5
+    /// How fast (m/s) each stroke must have gone before turning back: a nudge or a slow drag never counts.
+    static let brisk = 0.35
+
+    private var direction = 0
+    private var peak = 0.0
+    private var turns: [Double] = []
+    private var quietUntil = -Double.infinity
+
+    /// Feeds the hand's sideways speed (m/s, signed) at `time` (seconds); true at the moment a shake is complete.
+    mutating func feed(velocity: Double, at time: Double) -> Bool {
+        let heading = velocity > 0.02 ? 1 : (velocity < -0.02 ? -1 : 0)
+        if heading != 0 && heading != direction {
+            if direction != 0 && peak >= Self.brisk { turns.append(time) }
+            direction = heading
+            peak = 0
+        }
+        peak = max(peak, abs(velocity))
+        turns.removeAll { time - $0 > Self.window }
+        guard time >= quietUntil, turns.count >= Self.reversals else { return false }
+        turns.removeAll()
+        quietUntil = time + Self.cooldown
+        return true
+    }
+
+    /// The hand has let go: whatever it was doing is over.
+    mutating func reset() {
+        direction = 0
+        peak = 0
+        turns.removeAll()
+    }
+}
+
 struct Agitation {
     /// Impact speed (m/s) that sets the sand fully leaping: a fall of about 45 cm.
     static let fullImpactSpeed = 3.0

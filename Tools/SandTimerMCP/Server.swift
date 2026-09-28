@@ -23,6 +23,8 @@ struct SandTimerAccess {
     /// The moment it is now. Asked for again after a command, which can take a second or two while the app starts
     /// up, so the time left is counted from when the answer came back rather than when the question arrived.
     var moment: () -> Date = { Date() }
+    /// The projects, for the names and colours of the time counted against them.
+    var projects: () -> ProjectList = { ProjectList() }
 }
 
 enum SandTimerMCP {
@@ -127,23 +129,24 @@ enum SandTimerMCP {
                              calendar: Calendar) -> [String: Any] {
         switch tool {
         case "sand_timer_status":
-            return text(json(describe(access.state(), at: now)))
+            return text(json(describe(access.state(), at: now, projects: access.projects())))
         case "sand_timer_start", "sand_timer_pause", "sand_timer_resume":
             guard access.allowsControl() else { return text(controlOff, isError: true) }
             let command = String(tool.dropFirst("sand_timer_".count))
             switch access.send(command, command == "start" ? arguments["minutes"] as? Int : nil) {
-            case .success(let state): return text(json(describe(state, at: access.moment())))
+            case .success(let state): return text(json(describe(state, at: access.moment(), projects: access.projects())))
             case .failure(let why): return text(why.reason, isError: true)
             }
         default:
             break
         }
         let log = access.log()
+        let projects = access.projects()
         let period = SandLog.Period.named(arguments["period"] as? String) ?? .daily
         switch tool {
         case "sand_timer_stats":
             var spans = log.allBuckets(period, at: now, calendar: calendar).map {
-                span($0, period: period, now: now, calendar: calendar)
+                span($0, period: period, now: now, projects: projects, calendar: calendar)
             }
             if let limit = arguments["limit"] as? Int, limit > 0, spans.count > limit { spans = Array(spans.suffix(limit)) }
             let all = log.allTime
@@ -153,9 +156,11 @@ enum SandTimerMCP {
                               "since": log.firstDay(calendar: calendar).map { SandLog.dayKey($0, calendar: calendar) } ?? ""]))
         case "sand_timer_today":
             let today = log.days[SandLog.dayKey(now, calendar: calendar)] ?? SandLog.Day()
-            return text(json(["date": SandLog.dayKey(now, calendar: calendar), "seconds": seconds(today.seconds),
-                              "minutes": minutes(today.seconds), "label": SandLog.durationLabel(today.seconds),
-                              "timers": today.finished]))
+            var answer: [String: Any] = ["date": SandLog.dayKey(now, calendar: calendar), "seconds": seconds(today.seconds),
+                                         "minutes": minutes(today.seconds), "label": SandLog.durationLabel(today.seconds),
+                                         "timers": today.finished]
+            if let breakdown = breakdown(today.byProject, projects: projects) { answer["projects"] = breakdown }
+            return text(json(answer))
         case "sand_timer_days":
             let from = arguments["from"] as? String ?? ""
             let to = arguments["to"] as? String ?? SandLog.dayKey(now, calendar: calendar)
@@ -165,7 +170,7 @@ enum SandTimerMCP {
             }
             return text(json(["from": from.isEmpty ? (days.first?["date"] as? String ?? to) : from, "to": to, "days": days]))
         case "sand_timer_csv":
-            return text(log.csv(period, at: now, calendar: calendar))
+            return text(log.csv(period, at: now, projects: projects, calendar: calendar))
         default:
             return text("Sand Timer has no tool called \(tool).", isError: true)
         }
@@ -173,7 +178,7 @@ enum SandTimerMCP {
 
     /// What the timer is doing, as the MCP client sees it. The times are spelled out rather than left to be worked
     /// out from how long is left: a run that was paused and resumed began earlier than the last thing written down.
-    private static func describe(_ state: TimerState, at now: Date) -> [String: Any] {
+    private static func describe(_ state: TimerState, at now: Date, projects: ProjectList) -> [String: Any] {
         let left = state.remaining(at: now)
         func moment(_ date: Date?) -> String {
             guard let date, date != .distantPast else { return "" }
@@ -187,15 +192,34 @@ enum SandTimerMCP {
             described["running_for_seconds"] = seconds(now.timeIntervalSince(started))
         }
         if state.isRunning(at: now) { described["finishes_at"] = moment(state.runningUntil) }
+        if let project = projects.project(state.project) {
+            described["project"] = ["id": project.id, "name": project.name, "color": project.color]
+        }
         return described
     }
 
-    private static func span(_ bucket: SandLog.Bucket, period: SandLog.Period, now: Date,
+    private static func span(_ bucket: SandLog.Bucket, period: SandLog.Period, now: Date, projects: ProjectList,
                              calendar: Calendar) -> [String: Any] {
         let bounds = SandLog.bounds(of: bucket.start, period: period, at: now, calendar: calendar)
-        return ["start": bounds.start, "end": bounds.end,
-         "seconds": seconds(bucket.seconds), "minutes": minutes(bucket.seconds),
-         "label": SandLog.durationLabel(bucket.seconds), "timers": bucket.finished]
+        var span: [String: Any] = ["start": bounds.start, "end": bounds.end,
+                                   "seconds": seconds(bucket.seconds), "minutes": minutes(bucket.seconds),
+                                   "label": SandLog.durationLabel(bucket.seconds), "timers": bucket.finished]
+        if let breakdown = breakdown(bucket.projects, projects: projects) { span["projects"] = breakdown }
+        return span
+    }
+
+    /// Time by project, by its current name and colour; nil when nothing has been counted against a project, so the
+    /// answers of someone who doesn't use projects stay as they were. Untagged time is listed with an empty id.
+    private static func breakdown(_ tallies: [String: SandLog.Tally], projects: ProjectList) -> [[String: Any]]? {
+        guard tallies.keys.contains(where: { !$0.isEmpty }) else { return nil }
+        return SandLog.ordered(Set(tallies.keys), by: projects).compactMap { id in
+            guard let tally = tallies[id], tally.seconds > 0 || tally.finished > 0 else { return nil }
+            var entry: [String: Any] = ["id": id, "name": projects.name(of: id), "seconds": seconds(tally.seconds),
+                                        "minutes": minutes(tally.seconds), "label": SandLog.durationLabel(tally.seconds),
+                                        "timers": tally.finished]
+            if let project = projects.project(id) { entry["color"] = project.color }
+            return entry
+        }
     }
 
     private static func seconds(_ value: TimeInterval) -> Int { Int(value.rounded()) }

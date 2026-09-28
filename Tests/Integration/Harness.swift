@@ -101,6 +101,19 @@ final class TimerHarness {
         }
     }
 
+    /// Takes hold of the timer by its middle, as for carrying it about.
+    func grabBody() {
+        fingerOnScreen = center
+        sendMouse(.leftMouseDown, at: panel.convertPoint(fromScreen: center))
+    }
+
+    /// Shakes the held timer side to side: `strokes` quick moves of `reach` points, alternating direction.
+    func shakeSideways(strokes: Int, reach: CGFloat = 120) {
+        for stroke in 0..<strokes {
+            moveTopCap(by: CGVector(dx: stroke % 2 == 0 ? reach : -reach, dy: 0), steps: 4)
+        }
+    }
+
     func releaseTopCap() {
         guard let finger = fingerOnScreen else { return }
         sendMouse(.leftMouseUp, at: panel.convertPoint(fromScreen: finger))

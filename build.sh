@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/Model.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
+  APP_SOURCES=(Sources/Model.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
@@ -75,7 +75,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # The MCP server is a second, much smaller program in the same bundle: it answers Claude's questions about the
 # record of time run, sharing the app's own Stats.swift so the two can't disagree about a week or a month.
-MCP=(Sources/Stats.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift Tools/SandTimerMCP/main.swift)
+MCP=(Sources/Projects.swift Sources/Stats.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift Tools/SandTimerMCP/main.swift)
 
 if [[ "${1:-}" == "release" ]]; then
   # One app for both Apple Silicon and Intel Macs.

@@ -48,9 +48,12 @@ private final class FakeTimer {
         return .success(state)
     }
 
+    var projects = ProjectList()
+    var log = record
+
     var access: SandTimerAccess {
-        SandTimerAccess(log: { record }, state: { self.state }, allowsControl: { self.allowsControl }, send: send,
-                        moment: { now })
+        SandTimerAccess(log: { self.log }, state: { self.state }, allowsControl: { self.allowsControl }, send: send,
+                        moment: { now }, projects: { self.projects })
     }
 }
 
@@ -149,6 +152,27 @@ func mcpTests() {
             let narrow = try require(try fields(try answer("sand_timer_days", ["from": "2026-09-01", "to": "2026-09-11"]).text)["days"] as? [[String: Any]],
                                      "the days")
             expect(narrow.count == 1 && narrow[0]["timers"] as? Int == 1, "got \(narrow)")
+        }
+
+        test("time counted against projects is broken down by name and colour, and the status says which is on") {
+            timer = FakeTimer()
+            defer { timer = FakeTimer() }
+            timer.projects = ProjectList(all: [Project(id: "a", name: "Client A", color: "#2876E2")])
+            timer.log.add(seconds: 600, finished: 1, project: "a", on: now, calendar: calendar)
+            let today = try fields(try answer("sand_timer_today").text)
+            let parts = try require(today["projects"] as? [[String: Any]], "a breakdown: \(today)")
+            expect(parts.count == 2, "Client A and the untagged: \(parts)")
+            expect(parts[0]["name"] as? String == "Client A" && parts[0]["color"] as? String == "#2876E2" && parts[0]["seconds"] as? Int == 600)
+            expect(parts[1]["name"] as? String == "No project" && parts[1]["seconds"] as? Int == 396)
+            let weekly = try fields(try answer("sand_timer_stats", ["period": "weekly"]).text)
+            let spans = try require(weekly["spans"] as? [[String: Any]], "the spans")
+            expect(spans.first?["projects"] == nil, "a span with no project time has no breakdown")
+            expect((spans.last?["projects"] as? [[String: Any]])?.count == 2)
+            timer.state.project = "a"
+            let status = try fields(try answer("sand_timer_status").text)
+            expect((status["project"] as? [String: Any])?["name"] as? String == "Client A", "got \(status)")
+            let csv = try answer("sand_timer_csv").text
+            expect(csv.split(separator: "\n").first?.contains("Client A (minutes)") == true, "got \(csv)")
         }
 
         test("the CSV is the same one the Export button writes") {

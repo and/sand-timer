@@ -24,6 +24,12 @@ func currentState() -> TimerState {
     return TimerState.load(stored: CFPreferencesCopyAppValue(TimerState.key as CFString, timerPreferences) as? [String: Any])
 }
 
+/// The projects, for the names and colours of the time counted against them.
+func currentProjects() -> ProjectList {
+    CFPreferencesAppSynchronize(timerPreferences)
+    return ProjectList.load(stored: CFPreferencesCopyAppValue(ProjectList.key as CFString, timerPreferences) as? [[String: Any]])
+}
+
 func controlAllowed() -> Bool {
     CFPreferencesAppSynchronize(timerPreferences)
     return CFPreferencesCopyAppValue(TimerState.controlKey as CFString, timerPreferences) as? Bool ?? false
@@ -64,7 +70,8 @@ func send(_ command: String, minutes: Int?) -> Result<TimerState, Unreachable> {
         """))
 }
 
-let access = SandTimerAccess(log: currentRecord, state: currentState, allowsControl: controlAllowed, send: send)
+let access = SandTimerAccess(log: currentRecord, state: currentState, allowsControl: controlAllowed, send: send,
+                             projects: currentProjects)
 
 while let line = readLine(strippingNewline: true) {
     guard !line.trimmingCharacters(in: .whitespaces).isEmpty, let data = line.data(using: .utf8),

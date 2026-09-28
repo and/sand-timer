@@ -19,6 +19,8 @@ struct TimerState: Equatable {
     var pausedWith: TimeInterval?
     /// When the app last wrote this, so a reader can tell a fresh answer from a stale one.
     var updated = Date.distantPast
+    /// The id of the project the sand is running for, if any.
+    var project: String?
 
     func isRunning(at now: Date) -> Bool { (runningUntil ?? .distantPast) > now }
     func isPaused(at now: Date) -> Bool { !isRunning(at: now) && (pausedWith ?? 0) > 0 }
@@ -40,6 +42,7 @@ struct TimerState: Equatable {
         if let started { entry["started"] = started }
         if let runningUntil { entry["runningUntil"] = runningUntil }
         if let pausedWith { entry["pausedWith"] = pausedWith }
+        if let project { entry["project"] = project }
         return entry
     }
 
@@ -49,6 +52,7 @@ struct TimerState: Equatable {
                           started: stored["started"] as? Date,
                           runningUntil: stored["runningUntil"] as? Date,
                           pausedWith: stored["pausedWith"] as? TimeInterval,
-                          updated: stored["updated"] as? Date ?? .distantPast)
+                          updated: stored["updated"] as? Date ?? .distantPast,
+                          project: stored["project"] as? String)
     }
 }

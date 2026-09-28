@@ -397,8 +397,17 @@ func timerViewTests() {
             timer.run(1.0)
             expect(timer.view.statistics.log.buckets(.daily, at: Date()).last?.seconds == today.seconds, "paused sand adds nothing")
         }
-        test("the statistics window opens, draws today's bar in the sand's color, and closes") {
+        // Serial, and run against a project of its own: once any time is counted against a project the bars are drawn in
+        // project colours, and earlier project tests leave such time in this test program's record.
+        test("the statistics window opens, draws today's bar in the sand's color, and closes", serial: true) {
             let timer = TimerHarness(color: 1)  // teal, so the bars can't be mistaken for anything else on screen
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer { timer.view.updateProjects(before); timer.view.switchProject(to: active) }
+            timer.view.updateProjects(ProjectList(all: before.all + [Project(id: "t-stats", name: "Teal", color: Theme(color: 1, base: .black).sand.hexString)]))
+            timer.view.switchProject(to: "t-stats")
+            // Narrowed to that project, today's bar is all its own, whatever else today holds.
+            UserDefaults.standard.set("t-stats", forKey: "statsProject")
+            defer { UserDefaults.standard.removeObject(forKey: "statsProject") }
             timer.click(); timer.run(1.5)
             timer.menu("statsClicked"); timer.run(0.4)
             let window = try require(StatsPanel.open, "the statistics window")
@@ -438,7 +447,8 @@ func timerViewTests() {
             SettingsPanel.show(for: timer.view)
             defer { SettingsPanel.open?.close() }
             let settings = try require(SettingsPanel.open?.settings, "the window")
-            expect(Set(settings.switches.keys) == ["Start at Login", "Float Anywhere", "Control from Claude & Shortcuts", "Check for Updates"],
+            expect(Set(settings.switches.keys) == ["Start at Login", "Float Anywhere", "Control from Claude & Shortcuts", "Check for Updates",
+                                                   "One Thing at a Time"],
                    "got \(settings.switches.keys.sorted())")
             let float = try require(settings.switches["Float Anywhere"], "the switch")
             expect((float.state == .on) == timer.view.floats, "it starts out showing what the timer does")
@@ -585,6 +595,164 @@ func timerViewTests() {
             defaults.set(9, forKey: "size")
             expect(HourglassView.savedSizeIndex(defaults) == HourglassView.mediumSizeIndex, "a size that doesn't exist falls back to Medium")
             defaults.removeObject(forKey: "size")
+        }
+    }
+
+    // Projects are one list per Mac, like the settings, so these run on their own.
+    suite("Projects") {
+        func withProjects(_ timer: TimerHarness, _ body: () throws -> Void) rethrows {
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer { timer.view.updateProjects(before); timer.view.switchProject(to: active) }
+            timer.view.updateProjects(ProjectList(all: [Project(id: "t-a", name: "Client A", color: "#2876E2"),
+                                                        Project(id: "t-b", name: "Writing", color: "#E8833A"),
+                                                        Project(id: "t-c", name: "Reading", color: "#34BEA6", shakes: false)]))
+            timer.view.switchProject(to: nil)
+            try body()
+        }
+
+        test("the sand takes the colour of the project that's on", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                let plain = timer.view.theme.sand.hexString
+                timer.view.switchProject(to: "t-b")
+                expect(timer.view.theme.sand.hexString == "#E8833A", "got \(timer.view.theme.sand.hexString)")
+                timer.view.switchProject(to: nil)
+                expect(timer.view.theme.sand.hexString == plain, "and back to the Appearance colour with none")
+            }
+        }
+        test("switching mid-run splits the run where it happened", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                let log = { timer.view.statistics.log.days[SandLog.dayKey(Date())]?.byProject ?? [:] }
+                if timer.view.oneThingAtATime { timer.view.oneThingToggled() }
+                defer { if !timer.view.oneThingAtATime { timer.view.oneThingToggled() } }
+                let a0 = log()["t-a"]?.seconds ?? 0, b0 = log()["t-b"]?.seconds ?? 0
+                timer.view.switchProject(to: "t-a")
+                timer.click(); timer.run(1.5)
+                timer.view.switchProject(to: "t-b")
+                timer.run(1.0)
+                timer.menu("pauseClicked"); timer.run(0.4)
+                let a = (log()["t-a"]?.seconds ?? 0) - a0, b = (log()["t-b"]?.seconds ?? 0) - b0
+                expect(a > 1.0 && a < 2.2, "about a second and a half on Client A, got \(a)")
+                expect(b > 0.6 && b < 1.6, "about a second on Writing, got \(b)")
+            }
+        }
+        test("the menu lists the projects in use and ticks the one that's on", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                var list = timer.view.projects
+                list.all[2].archived = true
+                timer.view.updateProjects(list)
+                timer.view.switchProject(to: "t-b")
+                let item = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }, "the Project menu")
+                expect(item.title == "Project: Writing", "got \(item.title)")
+                let titles = item.submenu?.items.map(\.title) ?? []
+                expect(titles.prefix(2) == ["Client A", "Writing"] && !titles.contains("Reading"), "got \(titles)")
+                expect(titles.contains("No project") && titles.contains("Manage Projects…"), "got \(titles)")
+                expect(item.submenu?.items.first { $0.title == "Writing" }?.state == .on)
+                let clientA = try require(item.submenu?.items.first { $0.title == "Client A" }, "Client A")
+                _ = (clientA.target as? NSObject)?.perform(clientA.action, with: clientA)
+                expect(timer.view.activeProjectID == "t-a", "picking one switches to it")
+            }
+        }
+        test("shaking the timer moves to the next project ticked for it, and names it on the top cap", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                timer.view.switchProject(to: "t-a")
+                timer.grabBody()
+                timer.shakeSideways(strokes: 5)
+                timer.releaseTopCap()
+                expect(timer.view.activeProjectID == "t-b", "on to Writing, got \(timer.view.activeProjectID ?? "none")")
+                expect(timer.view.shownProjectName == "Writing", "its name is on the top cap")
+                timer.settle()
+                timer.grabBody()
+                timer.shakeSideways(strokes: 5)
+                timer.releaseTopCap()
+                expect(timer.view.activeProjectID == "t-a", "and round again, skipping Reading")
+            }
+        }
+        test("with One Thing at a Time, the project stays put for the whole session", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            try withProjects(timer) {
+                if !timer.view.oneThingAtATime { timer.view.oneThingToggled() }
+                timer.view.switchProject(to: "t-a")
+                timer.click(); timer.run(1.0)
+                expect(!timer.view.canSwitchProject, "not while the sand runs")
+                timer.view.switchProject(to: "t-b")
+                expect(timer.view.activeProjectID == "t-a", "a switch mid-session is declined")
+                let item = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }?.submenu, "the Project menu")
+                expect(item.items.first?.title == "Picking one starts a new session", "got \(item.items.first?.title ?? "")")
+                timer.menu("pauseClicked"); timer.settle()
+                expect(!timer.view.canSwitchProject, "nor while it's paused: the session isn't over")
+                timer.grabBody(); timer.shakeSideways(strokes: 5); timer.releaseTopCap(); timer.settle()
+                expect(timer.view.activeProjectID == "t-a", "and a shake mid-session changes nothing")
+                // Picking another from the menu is a fresh start: that session ends, and a new one runs for Writing.
+                let writing = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }?.submenu?.items.first { $0.title == "Writing" }, "Writing")
+                _ = (writing.target as? NSObject)?.perform(writing.action, with: writing)
+                timer.settle()
+                expect(timer.view.activeProjectID == "t-b", "on Writing now")
+                expect(timer.isRunning && timer.view.secondsLeft > 295, "in a new session, from the top: \(timer.view.secondsLeft)")
+                timer.menu("restartClicked"); timer.settle()
+                timer.view.oneThingToggled()
+                expect(timer.view.canSwitchProject, "turned off, it can change at any time")
+                timer.view.oneThingToggled()
+                var list = timer.view.projects
+                list.all[1].archived = true  // Writing, the one that's on
+                timer.view.updateProjects(list)
+                expect(timer.view.activeProjectID == nil, "removing the project that's on still takes it away")
+            }
+        }
+        test("the project's name comes forward while the pointer rests on the timer", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                timer.view.switchProject(to: "t-a")
+                expect(!timer.view.projectNameEmphasised, "faint to begin with")
+                timer.view.hoverTimer(true); timer.run(0.4)
+                expect(timer.view.projectNameEmphasised, "readable once the pointer is on the timer")
+                timer.view.hoverTimer(false); timer.run(0.4)
+                expect(!timer.view.projectNameEmphasised, "and faint again once it leaves")
+            }
+        }
+        test("carrying the timer about doesn't switch project", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                timer.view.switchProject(to: "t-a")
+                timer.grabBody()
+                timer.moveTopCap(by: CGVector(dx: 200, dy: 60), steps: 20)
+                timer.moveTopCap(by: CGVector(dx: -150, dy: 0), steps: 20)
+                timer.releaseTopCap()
+                expect(timer.view.activeProjectID == "t-a")
+            }
+        }
+        test("Settings adds, renames, recolours and removes projects, and the time stays with its id", serial: true) {
+            let timer = TimerHarness()
+            try withProjects(timer) {
+                SettingsPanel.show(for: timer.view)
+                defer { SettingsPanel.open?.close() }
+                let settings = try require(SettingsPanel.open?.settings, "the window")
+                expect(Set(settings.projectRows.keys) == ["t-a", "t-b", "t-c"], "a row each: \(settings.projectRows.keys)")
+                settings.addProjectButton.performClick(nil)
+                expect(timer.view.projects.visible.count == 4 && settings.projectRows.count == 4, "a fourth")
+                let row = try require(settings.projectRows["t-a"], "Client A's row")
+                row.name.stringValue = "Client Alpha"
+                settings.projectRenamed(row.name)
+                row.color.color = NSColor(hex: "#FF0000")!
+                settings.projectColorChanged(row.color)
+                expect(timer.view.projects.project("t-a")?.name == "Client Alpha" && timer.view.projects.project("t-a")?.color == "#FF0000")
+                timer.view.switchProject(to: "t-b")
+                settings.projectRemoved(try require(settings.projectRows["t-b"], "Writing's row").remove)
+                expect(timer.view.projects.project("t-b")?.archived == true, "kept, but removed")
+                expect(timer.view.activeProjectID == nil, "removing the project that's on switches to none")
+                expect(settings.projectRows["t-b"] == nil, "and its row goes")
+
+                // A name still being typed when Add Project is clicked is kept, not thrown back to what it was.
+                let reading = try require(settings.projectRows["t-c"], "Reading's row")
+                SettingsPanel.open?.makeFirstResponder(reading.name)
+                reading.name.currentEditor()?.string = "Deep reading"
+                settings.addProjectButton.performClick(nil)
+                expect(timer.view.projects.project("t-c")?.name == "Deep reading", "got \(timer.view.projects.project("t-c")?.name ?? "")")
+                expect(settings.projectRows["t-c"]?.name.stringValue == "Deep reading", "and the field still says so")
+            }
         }
     }
 

@@ -52,6 +52,12 @@ final class HourglassView: NSView {
     /// The volumes offered in the menu, quietest first.
     static let grainVolumes: [(name: String, volume: Double)] = [("Off", 0), ("Quiet", 0.45), ("Normal", 1), ("Loud", 1.8)]
     private(set) var minuteChimesOn = UserDefaults.standard.bool(forKey: "minuteChimes")
+    /// The project that was on when the app last closed, if it still exists and hasn't been removed.
+    static func startingProject(_ defaults: UserDefaults = .standard) -> String? {
+        guard let id = defaults.string(forKey: ProjectList.activeKey) else { return nil }
+        return ProjectList.load(from: defaults).project(id).flatMap { $0.archived ? nil : $0.id }
+    }
+
     /// Sand-time elapsed at the last tick while running, to hear each whole minute go by.
     private var lastElapsed: TimeInterval?
     /// How many minute chimes have played; tests listen here.
@@ -135,6 +141,14 @@ final class HourglassView: NSView {
     private var timer: Timer?
     /// What the timer has done, day by day; `Statistics…` shows it.
     private var log = SandLog.load()
+    /// Every project, and the one the sand is running for now (nil for none). Time is counted against its id.
+    private(set) var projects = ProjectList.load()
+    private(set) var activeProjectID: String? = HourglassView.startingProject()
+    /// Watches the hand while it drags the timer, for a shake that means "next project".
+    private var shake = ShakeGesture()
+    /// A project just switched to: its name fades in on the top cap.
+    private var projectFlash: (name: String, since: Date)?
+    private static let projectFlashDuration = 0.35
     /// Time run that hasn't been written out yet, and the moment the record has been counted up to while it runs.
     private var unsavedSeconds: TimeInterval = 0
     private var countedUpTo: Date?
@@ -346,7 +360,11 @@ final class HourglassView: NSView {
         let inMotion = moving || dragged || drop != nil || smoothedVelocity != .zero
         if tip == nil && lean == nil { setExpanded(flip != nil || lyingAngle != 0) }
         let displaySwitchingOn = displayOnAt.map { now.timeIntervalSince($0) < SandPhysics.releaseDelay + Self.displayFade } ?? false
-        let settling = displaySwitchingOn || goalHoverChanging(at: now)
+        let flashing = projectFlash.map { now.timeIntervalSince($0.since) < Self.projectFlashDuration } ?? false
+        if !flashing, projectFlash != nil { projectFlash = nil; needsDisplay = true }
+        let emphasisChanging = timerHover.map { now.timeIntervalSince($0.since) < Self.goalHoverFade } ?? false
+        if let timerHover, !timerHover.over, !emphasisChanging { self.timerHover = nil }
+        let settling = displaySwitchingOn || goalHoverChanging(at: now) || flashing || emphasisChanging
         if let goalHover, !goalHover.over, !goalHoverChanging(at: now) { self.goalHover = nil }
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
         let animating = running || moving || settling || trailing
@@ -444,8 +462,12 @@ final class HourglassView: NSView {
         func ease(_ t: Double) -> Double { let x = min(1, max(0, t)); return x * x * (3 - 2 * x) }
         var display = BaseDisplay(text: clock.remainingLabel(progress: frame.progress), goal: dailyGoalFraction,
                               goalTicks: SandLog.goalTicks(target: TimeInterval(dailyTargetMinutes * 60)))
-        display.goalFigure = dailyGoalLabel
-        display.goalFigureOpacity = previewGoalFigure ? 1 : (flip == nil ? goalHoverOpacity(at: now) : 0)
+        display.plateText = dailyGoalLabel
+        display.plateTextOpacity = previewGoalFigure ? 1 : (flip == nil ? goalHoverOpacity(at: now) : 0)
+        // The project that's on, on the top cap's lower ring; a new one fades in as it is switched to.
+        display.project = projects.project(activeProjectID)?.name
+        display.projectEmphasis = projectEmphasis(at: now)
+        if let flash = projectFlash { display.projectOpacity = ease(now.timeIntervalSince(flash.since) / Self.projectFlashDuration) }
         if let flip {
             display.brightness = 1 - ease(now.timeIntervalSince(flip.start) / Self.displayFade)
             display.rotation = -angle
@@ -453,7 +475,7 @@ final class HourglassView: NSView {
             display.brightness = ease((now.timeIntervalSince(displayOnAt) - SandPhysics.releaseDelay) / Self.displayFade)
         }
         renderer.neckScale = CGFloat(SandPhysics.neckScale(minutes: Double(minutes)))
-        renderer.draw(frame, time: CACurrentMediaTime(), theme: Theme(color: themeIndex, base: base), display: display)
+        renderer.draw(frame, time: CACurrentMediaTime(), theme: theme, display: display)
         ctx.restoreGState()
     }
 
@@ -485,6 +507,7 @@ final class HourglassView: NSView {
         drag = (handLocation(), CGPoint(x: window.frame.midX, y: window.frame.midY), screenBox)
         dragged = false
         lastDragSample = nil
+        shake.reset()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -544,6 +567,8 @@ final class HourglassView: NSView {
                                     dy: dragVelocity.dy * 0.4 + (placed.y - last.point.y) / seconds * 0.6)
         }
         lastDragSample = (event.timestamp, placed)
+        let metersPerPoint = SandPhysics.timerHeightMeters / Double(400 * Self.sizes[sizeIndex].scale)
+        if shake.feed(velocity: Double(dragVelocity.dx) * metersPerPoint, at: event.timestamp) { shakeToNextProject() }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -702,8 +727,13 @@ final class HourglassView: NSView {
     override func mouseMoved(with event: NSEvent) {
         updateCursor(event)
         updateGoalHover(at: convert(event.locationInWindow, from: nil))
+        updateTimerHover(true)
     }
-    override func mouseExited(with event: NSEvent) { updateGoalHover(at: nil) }
+    override func mouseEntered(with event: NSEvent) { updateTimerHover(true) }
+    override func mouseExited(with event: NSEvent) {
+        updateGoalHover(at: nil)
+        updateTimerHover(false)
+    }
 
     /// An open hand over the top cap shows it can be pushed to tilt the timer.
     private func updateCursor(_ event: NSEvent) {
@@ -830,6 +860,7 @@ final class HourglassView: NSView {
         // Duration is chosen often enough to stay to hand; how the timer looks is set once and then left alone.
         let durations = Self.durations.map { ($0 == Self.pomodoroMinutes ? "\($0) min 🍅" : "\($0) min", $0, $0 == minutes) }
         menu.addItem(submenu("Duration", durations, #selector(durationPicked)))
+        menu.addItem(projectMenuItem())
         let appearance = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
         let looks = NSMenu()
         looks.autoenablesItems = false
@@ -1003,7 +1034,7 @@ final class HourglassView: NSView {
     /// Writes down what the timer is doing now, so the MCP server can answer without asking the app.
     func publishState() {
         let now = Date()
-        var state = TimerState(minutes: minutes, updated: now)
+        var state = TimerState(minutes: minutes, updated: now, project: activeProjectID)
         if clock.isRunning(at: now) {
             state.started = sessionStartedAt
             state.runningUntil = clock.finishTime
@@ -1113,6 +1144,33 @@ final class HourglassView: NSView {
             : 1 - ease(now.timeIntervalSince(goalHover.since) / Self.goalHoverFade)
     }
 
+    /// The pointer resting anywhere on the timer: the project's name comes forward, so it can be read, and goes back
+    /// to a faint mark when the pointer leaves. Same fade as the hover figure, without the wait.
+    private var timerHover: (since: Date, over: Bool)?
+
+    private func projectEmphasis(at now: Date) -> Double {
+        guard let timerHover else { return 0 }
+        func ease(_ t: Double) -> Double { let x = min(1, max(0, t)); return x * x * (3 - 2 * x) }
+        let t = now.timeIntervalSince(timerHover.since) / Self.goalHoverFade
+        return timerHover.over ? ease(t) : 1 - ease(t)
+    }
+
+    private func updateTimerHover(_ over: Bool) {
+        guard over != (timerHover?.over ?? false) else { return }
+        let now = Date()
+        let shown = projectEmphasis(at: now)
+        // Start the fade from wherever it had got to, so a quick in-and-out doesn't jump.
+        timerHover = over ? (now.addingTimeInterval(-shown * Self.goalHoverFade), true)
+                          : (now.addingTimeInterval(-(1 - shown) * Self.goalHoverFade), false)
+        needsDisplay = true
+    }
+
+    /// Whether the project's name is brought forward: tests look here.
+    var projectNameEmphasised: Bool { projectEmphasis(at: Date()) > 0.5 }
+
+    /// Stands in for the pointer arriving on the timer or leaving it: for tests.
+    func hoverTimer(_ over: Bool) { updateTimerHover(over) }
+
     /// Whether the hover figure is fading in or out, which needs the timer redrawn even when the sand is still.
     private func goalHoverChanging(at now: Date) -> Bool {
         guard let goalHover else { return false }
@@ -1157,7 +1215,121 @@ final class HourglassView: NSView {
     @objc func settingsClicked() { SettingsPanel.show(for: self) }
 
     /// What the statistics window draws, read afresh each time it refreshes.
-    var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand) }
+    var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand, projects: projects) }
+
+    /// The sand's colour and the caps': the project's colour while one is on, the Appearance colour otherwise.
+    var theme: Theme {
+        if let color = projects.project(activeProjectID).flatMap({ NSColor(hex: $0.color) }) { return Theme(sand: color, base: base) }
+        return Theme(color: themeIndex, base: base)
+    }
+
+    // MARK: Projects
+
+    /// "One Thing at a Time": the project stays put for the whole of a session — running or paused — and can be changed
+    /// only once the sand has run out or before it starts. On unless turned off: hopping between things mid-session is
+    /// what the timer is there to calm.
+    static let oneThingKey = "oneThingAtATime"
+    private(set) var oneThingAtATime = UserDefaults.standard.object(forKey: HourglassView.oneThingKey) as? Bool ?? true
+
+    @objc func oneThingToggled() {
+        oneThingAtATime.toggle()
+        UserDefaults.standard.set(oneThingAtATime, forKey: Self.oneThingKey)
+    }
+
+    /// Whether the project can be changed now: always, unless One Thing at a Time is on and a session is under way.
+    var canSwitchProject: Bool {
+        let now = Date()
+        return !oneThingAtATime || (!clock.isRunning(at: now) && !clock.isPaused(at: now))
+    }
+
+    /// Starts counting against another project (nil for none). The time run so far is counted against the one before,
+    /// right up to this moment, so a switch mid-run splits the run exactly where it happened. Under One Thing at a
+    /// Time a switch mid-session is declined, unless `force`d — as when the project that's on is removed.
+    func switchProject(to id: String?, force: Bool = false) {
+        guard force || canSwitchProject else { return }
+        let now = Date()
+        let chosen = projects.project(id).flatMap { $0.archived ? nil : $0.id }
+        guard chosen != activeProjectID else { return }
+        recordRun(finished: false, at: now)
+        activeProjectID = chosen
+        if let chosen { UserDefaults.standard.set(chosen, forKey: ProjectList.activeKey) } else { UserDefaults.standard.removeObject(forKey: ProjectList.activeKey) }
+        projectFlash = (projects.name(of: chosen ?? ""), now)
+        publishState()
+        needsDisplay = true
+    }
+
+    /// Takes a changed list of projects from Settings. Removing the project that's on switches to none.
+    func updateProjects(_ list: ProjectList) {
+        projects = list
+        list.save()
+        if projects.project(activeProjectID)?.archived != false { switchProject(to: nil, force: true) }
+        needsDisplay = true
+    }
+
+    /// A shake while holding the timer: on to the next project marked for shaking.
+    func shakeToNextProject() {
+        guard canSwitchProject, let next = projects.nextForShake(after: activeProjectID) else { return }
+        switchProject(to: next.id)
+    }
+
+    /// The name printed on the top cap: the project that's on, or nothing. Tests look here.
+    var shownProjectName: String? { projects.project(activeProjectID)?.name }
+
+    /// Picked from the menu. Between sessions it simply switches; during one, under One Thing at a Time, it closes that
+    /// session and starts a fresh one with the new project — a deliberate new start rather than a hop mid-session. The
+    /// time already run stays with the project it was run for.
+    @objc private func projectPicked(_ sender: NSMenuItem) {
+        let id = sender.representedObject as? String
+        guard !canSwitchProject else { return switchProject(to: id) }
+        guard projects.project(id)?.id != activeProjectID else { return }
+        switchProject(to: id, force: true)
+        restartClicked()
+    }
+
+    /// The Project submenu: every project in use with the active one ticked, No Project, and a way to manage them.
+    func projectMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Project", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if !canSwitchProject {
+            // Said plainly: choosing another project here is a fresh start, not a hop.
+            let note = NSMenuItem(title: "Picking one starts a new session", action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            menu.addItem(note)
+            menu.addItem(.separator())
+        }
+        for project in projects.visible {
+            let entry = NSMenuItem(title: project.name, action: #selector(projectPicked(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = project.id
+            entry.state = project.id == activeProjectID ? .on : .off
+            entry.image = NSColor(hex: project.color).map(Self.swatch)
+            menu.addItem(entry)
+        }
+        if !projects.visible.isEmpty { menu.addItem(.separator()) }
+        let none = NSMenuItem(title: ProjectList.untitled, action: #selector(projectPicked(_:)), keyEquivalent: "")
+        none.target = self
+        none.state = activeProjectID == nil ? .on : .off
+        menu.addItem(none)
+        menu.addItem(.separator())
+        let manage = NSMenuItem(title: "Manage Projects…", action: #selector(settingsClicked), keyEquivalent: "")
+        manage.target = self
+        menu.addItem(manage)
+        parent.submenu = menu
+        if let active = projects.project(activeProjectID) { parent.title = "Project: \(active.name)" }
+        return parent
+    }
+
+    /// A small round swatch of a project's colour, for menus.
+    static func swatch(_ color: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            NSColor(white: 0, alpha: 0.2).setStroke()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5)).stroke()
+            return true
+        }
+    }
 
     @objc func statsClicked() {
         saveStatistics(at: Date())  // the window shouldn't have to wait for the next batch
@@ -1171,12 +1343,12 @@ final class HourglassView: NSView {
             // Sand stops at the moment the top empties, however late this tick comes — the Mac may have slept.
             let until = min(now, clock.finishTime ?? now)
             if until > since {
-                log.add(seconds: until.timeIntervalSince(since), on: until)
+                log.add(seconds: until.timeIntervalSince(since), project: activeProjectID ?? "", on: until)
                 unsavedSeconds += until.timeIntervalSince(since)
             }
         }
         countedUpTo = clock.isRunning(at: now) ? now : nil
-        if finished { log.add(finished: 1, on: now) }
+        if finished { log.add(finished: 1, project: activeProjectID ?? "", on: now) }
         // Written in batches while it runs, and once more as soon as it stops: a crash costing a few seconds of the
         // record matters less than writing on every frame would.
         if finished || unsavedSeconds >= Self.saveRunEvery || (countedUpTo == nil && unsavedSeconds > 0) {

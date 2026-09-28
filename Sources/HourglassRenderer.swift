@@ -40,6 +40,33 @@ struct Theme {
         let brightness = (cap.usingColorSpace(.sRGB) ?? cap).brightnessComponent
         darkCap = brightness < 0.5
     }
+
+    /// Sand of any colour — a project's — on either base. A matching cap is the sand lightened, the way the palette's
+    /// own caps are. Named by the colour itself, so every colour gets its own cached glass and caps.
+    init(sand color: NSColor, base: Base) {
+        let sand = color.usingColorSpace(.sRGB) ?? color
+        name = "\(sand.hexString) on \(base.name)"
+        self.sand = sand
+        cap = base == .black ? Self.rgb(22, 22, 24) : (sand.blended(withFraction: 0.35, of: .white) ?? sand)
+        darkCap = (cap.usingColorSpace(.sRGB) ?? cap).brightnessComponent < 0.5
+    }
+}
+
+extension NSColor {
+    /// "#RRGGBB" in sRGB, how a project keeps its colour.
+    var hexString: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        func byte(_ v: CGFloat) -> Int { Int((min(1, max(0, v)) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(c.redComponent), byte(c.greenComponent), byte(c.blueComponent))
+    }
+
+    /// A colour written "#RRGGBB"; nil for anything else.
+    convenience init?(hex: String) {
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.count == 6, let value = Int(digits, radix: 16) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                  blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
 }
 
 /// What the sand is doing in one frame, in the glass's own frame of reference.
@@ -78,9 +105,16 @@ struct BaseDisplay {
     var goal: Double?
     /// Where marks fall along that line, as fractions of the target.
     var goalTicks: [Double] = []
-    /// The day's figure, "21:18/3:00:00", printed above the line while the pointer rests on the base plate.
-    var goalFigure: String?
-    var goalFigureOpacity: Double = 0
+    /// Words printed across the base plate in place of the line: the day's figure, "21:18/3:00:00", while the pointer
+    /// rests there, or a project's name for a moment after switching to it.
+    var plateText: String?
+    var plateTextOpacity: Double = 0
+    /// The project that's on, printed on the top cap's lower ring the way the time is printed on the base's.
+    var project: String?
+    var projectOpacity: Double = 1
+    /// 0 while the pointer is elsewhere, when the name stays faint; 1 while it rests on the timer, when it's printed at
+    /// full strength. Only its brightness changes, never its size: it stays a mark on the plastic.
+    var projectEmphasis: Double = 0
 }
 
 /// Draws the timer in a 200 x 400 unit space (y grows downward, neck at y = 200).
@@ -211,6 +245,8 @@ final class HourglassRenderer {
         if let layers { drawLayer(layers.front) } else { drawGlassFront(theme: theme) }
         drawBaseDisplay(display, theme: theme)
         drawGoalLine(display, theme: theme)
+        drawPlateText(display, theme: theme)
+        drawProjectName(display, theme: theme)
     }
 
     // MARK: Cached layers
@@ -672,8 +708,8 @@ final class HourglassRenderer {
             ctx.restoreGState()
         }
 
-        // While hovered, the line gives way to the figure it stands for, printed across the plate where it was.
-        let figureShown = display.goalFigure == nil ? 0 : CGFloat(min(1, max(0, display.goalFigureOpacity)))
+        // While something is printed across the plate, the line gives way to it.
+        let figureShown = display.plateText == nil ? 0 : CGFloat(min(1, max(0, display.plateTextOpacity)))
         ctx.saveGState()
         ctx.setAlpha(CGFloat(display.brightness) * (1 - figureShown))
         let whole = curve(to: right)
@@ -725,13 +761,6 @@ final class HourglassRenderer {
             ctx.strokePath()
             ctx.restoreGState()
         }
-        // The day's figure, printed across the plate in place of the line while hovered, the same way as the time on
-        // the ring above: wrapped round the plate, pressed in, shaded and shone on like the plastic.
-        if let figure = display.goalFigure, figureShown > 0.01 {
-            let plate = CGRect(x: 7, y: 377, width: 186, height: 23)
-            let glyphs = wrappedLabelPath(figure, ringCenterY: plate.midY, ringRadius: plate.width / 2, size: 15)
-            printOnRing(glyphs, ring: plate, clip: plate, alpha: CGFloat(display.brightness) * figureShown, theme: theme)
-        }
         // Fine marks cut across the groove, so the fill can be read against a scale. Etched: a dark notch with the
         // light catching its far edge, seen through the sand as much as beside it.
         for tick in display.goalTicks where tick > 0 && tick < 1 {
@@ -751,11 +780,55 @@ final class HourglassRenderer {
         ctx.restoreGState()
     }
 
+    /// The project's name on the top cap's lower ring — the second ring from the top — printed like the time below
+    /// (wrapped round the ring, pressed in, shaded and shone on, in the same size of type) but faint, more a mark
+    /// moulded into the plastic than a second display, so the eye goes to the time. A long name is set smaller. It dims and turns with the time
+    /// while the glass flips.
+    private func drawProjectName(_ display: BaseDisplay, theme: Theme) {
+        guard let name = display.project, display.projectOpacity > 0.01, display.brightness > 0.01 else { return }
+        let ring = CGRect(x: 19, y: 18, width: 162, height: 28)
+        let face = CGRect(x: ring.minX, y: 23, width: ring.width, height: 23)  // below the disc above it
+        let emphasis = CGFloat(min(1, max(0, display.projectEmphasis)))
+        let (text, size) = fitted(name, room: ring.width - 24, largest: 16, smallest: 11)  // the time's own size
+        var glyphs = wrappedLabelPath(text, ringCenterY: face.midY, ringRadius: ring.width / 2, size: size)
+        if display.rotation != 0 {
+            let center = CGPoint(x: cx, y: face.midY)
+            var turn = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: display.rotation).translatedBy(x: -center.x, y: -center.y)
+            glyphs = glyphs.copy(using: &turn) ?? glyphs
+        }
+        let strength = 0.42 + 0.58 * emphasis
+        printOnRing(glyphs, ring: ring, clip: face, alpha: strength * CGFloat(display.brightness * min(1, display.projectOpacity)), theme: theme)
+    }
+
+    /// Words set to fit `room`: `largest` down to `smallest`, then cut short with an ellipsis.
+    private func fitted(_ string: String, room: CGFloat, largest: CGFloat = 15, smallest: CGFloat = 11,
+                        weight: NSFont.Weight = .semibold) -> (String, CGFloat) {
+        func width(_ string: String, _ size: CGFloat) -> CGFloat {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+            return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: [.font: font])), nil, nil, nil))
+        }
+        var text = string
+        let size = min(largest, max(smallest, largest * room / max(1, width(text, largest))))
+        while width(text, size) > room && text.count > 2 { text = String(text.dropLast(2)) + "…" }
+        return (text, size)
+    }
+
+    /// Words printed across the base plate, in place of the line, the same way as the time on the ring above: wrapped
+    /// round the plate, pressed in, shaded and shone on like the plastic.
+    private func drawPlateText(_ display: BaseDisplay, theme: Theme) {
+        guard let plateText = display.plateText, display.plateTextOpacity > 0.01, display.brightness > 0.01 else { return }
+        let plate = CGRect(x: 7, y: 377, width: 186, height: 23)
+        let (text, size) = fitted(plateText, room: plate.width - 22)
+        let glyphs = wrappedLabelPath(text, ringCenterY: plate.midY, ringRadius: plate.width / 2, size: size)
+        printOnRing(glyphs, ring: plate, clip: plate, alpha: CGFloat(display.brightness * min(1, display.plateTextOpacity)), theme: theme)
+    }
+
     /// Outlines of the label's glyphs, centered on the ring and wrapped around it: each character is pushed toward
     /// the middle and narrowed by how far round the cylinder it sits, as seen from the front.
-    private func wrappedLabelPath(_ text: String, ringCenterY: CGFloat, ringRadius: CGFloat, size: CGFloat = 16) -> CGPath {
+    private func wrappedLabelPath(_ text: String, ringCenterY: CGFloat, ringRadius: CGFloat, size: CGFloat = 16,
+                                  weight: NSFont.Weight = .semibold) -> CGPath {
         // Monospaced digits so the label doesn't jitter as seconds tick.
-        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         let baseline = ringCenterY + font.capHeight / 2

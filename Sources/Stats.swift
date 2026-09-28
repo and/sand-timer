@@ -2,7 +2,8 @@ import Foundation
 
 /// What the timer has done, kept as one entry per day: how long its sand ran, and how many timers ran all the way
 /// out, with the same broken down by hour. Every view of the statistics — by day, week, month or year — is a sum over
-/// those days, and the hourly view a sum over their hours.
+/// those days, and the hourly view a sum over their hours. Each day and hour also keeps its time project by project,
+/// by the project's id; time run with no project, and anything recorded before projects existed, is under "".
 struct SandLog: Equatable {
     struct Day: Equatable {
         var seconds: TimeInterval = 0
@@ -10,12 +11,38 @@ struct SandLog: Equatable {
         /// The same, hour by hour (0 to 23, local time), for the hourly view. Days recorded before the hours were kept
         /// have none, and the detail is let go after a year while the day's totals stay.
         var hours: [Int: Slot] = [:]
+        /// The day's time by project id.
+        var projects: [String: Tally] = [:]
+
+        /// By project, with whatever wasn't counted against one — including everything from before projects — under "".
+        var byProject: [String: Tally] { SandLog.withRemainder(projects, seconds: seconds, finished: finished) }
     }
 
     /// What one hour holds.
     struct Slot: Equatable {
         var seconds: TimeInterval = 0
         var finished: Int = 0
+        var projects: [String: Tally] = [:]
+
+        var byProject: [String: Tally] { SandLog.withRemainder(projects, seconds: seconds, finished: finished) }
+    }
+
+    /// Time run and timers finished, for one project.
+    struct Tally: Equatable {
+        var seconds: TimeInterval = 0
+        var finished: Int = 0
+    }
+
+    /// `projects` with any time and finishes the totals hold beyond them put under "", the untagged.
+    fileprivate static func withRemainder(_ projects: [String: Tally], seconds: TimeInterval, finished: Int) -> [String: Tally] {
+        var all = projects
+        let counted = projects.values.reduce(Tally()) { Tally(seconds: $0.seconds + $1.seconds, finished: $0.finished + $1.finished) }
+        let rest = Tally(seconds: max(0, seconds - counted.seconds), finished: max(0, finished - counted.finished))
+        if rest.seconds > 0.5 || rest.finished > 0 {
+            all["", default: Tally()].seconds += rest.seconds
+            all[""]?.finished += rest.finished
+        }
+        return all
     }
 
     /// One span in the statistics: a day, a week, a month or a year, with what the timer did in it.
@@ -29,6 +56,8 @@ struct SandLog: Equatable {
         let start: Date
         let seconds: TimeInterval
         let finished: Int
+        /// The same, by project id; untagged time under "".
+        var projects: [String: Tally] = [:]
     }
 
     /// How the statistics are grouped.
@@ -67,19 +96,43 @@ struct SandLog: Equatable {
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 
-    mutating func add(seconds: TimeInterval = 0, finished: Int = 0, on date: Date, calendar: Calendar = .current) {
+    /// Counts time run and timers finished on the day and hour `date` falls in, against `project` (an id; "" for none).
+    mutating func add(seconds: TimeInterval = 0, finished: Int = 0, project: String = "", on date: Date, calendar: Calendar = .current) {
         guard seconds > 0 || finished > 0 else { return }
         let key = Self.dayKey(date, calendar: calendar)
+        let run = max(0, seconds)
         var day = days[key] ?? Day()
-        day.seconds += max(0, seconds)
+        day.seconds += run
         day.finished += finished
+        day.projects[project, default: Tally()].seconds += run
+        day.projects[project]?.finished += finished
         let hour = calendar.component(.hour, from: date)
         var slot = day.hours[hour] ?? Slot()
-        slot.seconds += max(0, seconds)
+        slot.seconds += run
         slot.finished += finished
+        slot.projects[project, default: Tally()].seconds += run
+        slot.projects[project]?.finished += finished
         day.hours[hour] = slot
         days[key] = day
     }
+
+    /// The record as if only `project` had ever been run: what the statistics show when narrowed to one project.
+    func only(project: String) -> SandLog {
+        var narrowed = SandLog()
+        for (key, day) in days {
+            guard let tally = day.byProject[project] else { continue }
+            var kept = Day(seconds: tally.seconds, finished: tally.finished, projects: [project: tally])
+            for (hour, slot) in day.hours {
+                guard let part = slot.byProject[project] else { continue }
+                kept.hours[hour] = Slot(seconds: part.seconds, finished: part.finished, projects: [project: part])
+            }
+            narrowed.days[key] = kept
+        }
+        return narrowed
+    }
+
+    /// Every project id with time or finishes anywhere in the record, "" included when some time had none.
+    var projectIDs: Set<String> { Set(days.values.flatMap { $0.byProject.keys }) }
 
     var allTime: Day {
         days.values.reduce(into: Day()) { total, day in
@@ -130,10 +183,14 @@ struct SandLog: Equatable {
         guard let first = starts.first else { return [] }
 
         var totals = [Day](repeating: Day(), count: starts.count)
-        func add(_ seconds: TimeInterval, _ finished: Int, at date: Date) {
+        func add(_ seconds: TimeInterval, _ finished: Int, _ projects: [String: Tally], at date: Date) {
             guard date >= first, let index = starts.lastIndex(where: { $0 <= date }) else { return }
             totals[index].seconds += seconds
             totals[index].finished += finished
+            for (id, tally) in projects {
+                totals[index].projects[id, default: Tally()].seconds += tally.seconds
+                totals[index].projects[id]?.finished += tally.finished
+            }
         }
         for (key, day) in days {
             guard let date = Self.date(forDayKey: key, calendar: calendar) else { continue }
@@ -141,10 +198,12 @@ struct SandLog: Equatable {
                 // The hours before the day's start are nowhere in view, so a day that ended before the first bar is skipped whole.
                 guard calendar.date(byAdding: .day, value: 1, to: date).map({ $0 > first }) ?? false else { continue }
                 for (hour, slot) in day.hours {
-                    if let start = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) { add(slot.seconds, slot.finished, at: start) }
+                    if let start = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) {
+                        add(slot.seconds, slot.finished, slot.byProject, at: start)
+                    }
                 }
             } else {
-                add(day.seconds, day.finished, at: date)
+                add(day.seconds, day.finished, day.byProject, at: date)
             }
         }
 
@@ -160,7 +219,7 @@ struct SandLog: Equatable {
             if index == last - 1 && period == .daily { title = "Yesterday" }
             if index == last - 1 && period == .hourly { title = "Last hour" }
             return Bucket(label: labels.string(from: start), subLabel: subLabels?.string(from: start), title: title,
-                          start: start, seconds: day.seconds, finished: day.finished)
+                          start: start, seconds: day.seconds, finished: day.finished, projects: day.projects)
         }
     }
 
@@ -257,16 +316,30 @@ struct SandLog: Equatable {
 
     /// The whole record as comma-separated rows, one for every span of `period` from the first day recorded to the
     /// one happening now. Dates are written yyyy-MM-dd, which sorts and reads the same in every spreadsheet, and
-    /// every field is a plain number or date, so nothing needs quoting or escaping.
-    func csv(_ period: Period, at now: Date, calendar: Calendar = .current) -> String {
-        var rows = ["Start,End,Time run (seconds),Time run (minutes),Timers finished"]
+    /// every field is a plain number or date, so nothing needs quoting or escaping — except project names, which are
+    /// the user's own and quoted as a spreadsheet expects. Once any time has been counted against a project, each
+    /// project with time in the record gets a column of its minutes, in `projects`' order, with untagged time last.
+    func csv(_ period: Period, at now: Date, projects: ProjectList = ProjectList(), calendar: Calendar = .current) -> String {
+        let ids = projectIDs
+        let columns = ids.subtracting([""]).isEmpty ? [] : Self.ordered(ids, by: projects)
+        func quoted(_ name: String) -> String { "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+        var rows = [(["Start", "End", "Time run (seconds)", "Time run (minutes)", "Timers finished"]
+                     + columns.map { quoted("\(projects.name(of: $0)) (minutes)") }).joined(separator: ",")]
         for bucket in allBuckets(period, at: now, calendar: calendar) {
             let span = Self.bounds(of: bucket.start, period: period, at: now, calendar: calendar)
-            rows.append([span.start, span.end,
-                         String(format: "%.0f", bucket.seconds), String(format: "%.1f", bucket.seconds / 60),
-                         "\(bucket.finished)"].joined(separator: ","))
+            rows.append(([span.start, span.end,
+                          String(format: "%.0f", bucket.seconds), String(format: "%.1f", bucket.seconds / 60),
+                          "\(bucket.finished)"]
+                         + columns.map { String(format: "%.1f", (bucket.projects[$0]?.seconds ?? 0) / 60) }).joined(separator: ","))
         }
         return rows.joined(separator: "\n") + "\n"
+    }
+
+    /// Project ids in the order the projects were made, then any the list no longer knows, then the untagged.
+    static func ordered(_ ids: Set<String>, by projects: ProjectList) -> [String] {
+        let known = projects.all.map(\.id).filter(ids.contains)
+        let unknown = ids.subtracting(known).subtracting([""]).sorted()
+        return known + unknown + (ids.contains("") ? [""] : [])
     }
 }
 
@@ -284,22 +357,37 @@ extension SandLog {
     static func load(stored: [String: [String: Any]]) -> SandLog {
         var log = SandLog()
         for (key, entry) in stored {
-            var day = Day(seconds: entry["seconds"] as? Double ?? 0, finished: entry["finished"] as? Int ?? 0)
+            var day = Day(seconds: entry["seconds"] as? Double ?? 0, finished: entry["finished"] as? Int ?? 0,
+                          projects: tallies(entry["projects"]))
             for (hour, slot) in entry["hours"] as? [String: [String: Any]] ?? [:] {
                 guard let hour = Int(hour), (0..<24).contains(hour) else { continue }
-                day.hours[hour] = Slot(seconds: slot["seconds"] as? Double ?? 0, finished: slot["finished"] as? Int ?? 0)
+                day.hours[hour] = Slot(seconds: slot["seconds"] as? Double ?? 0, finished: slot["finished"] as? Int ?? 0,
+                                       projects: tallies(slot["projects"]))
             }
             log.days[key] = day
         }
         return log
     }
 
+    private static func tallies(_ stored: Any?) -> [String: Tally] {
+        (stored as? [String: [String: Any]] ?? [:]).mapValues {
+            Tally(seconds: $0["seconds"] as? Double ?? 0, finished: $0["finished"] as? Int ?? 0)
+        }
+    }
+
+    private static func stored(_ tallies: [String: Tally]) -> [String: Any] {
+        tallies.mapValues { ["seconds": $0.seconds, "finished": $0.finished] as [String: Any] }
+    }
+
     func save(to defaults: UserDefaults = .standard) {
         defaults.set(days.mapValues { day -> [String: Any] in
             var entry: [String: Any] = ["seconds": day.seconds, "finished": day.finished]
+            if !day.projects.isEmpty { entry["projects"] = Self.stored(day.projects) }
             if !day.hours.isEmpty {
-                entry["hours"] = Dictionary(uniqueKeysWithValues: day.hours.map { hour, slot in
-                    (String(hour), ["seconds": slot.seconds, "finished": slot.finished] as [String: Any])
+                entry["hours"] = Dictionary(uniqueKeysWithValues: day.hours.map { hour, slot -> (String, [String: Any]) in
+                    var hourEntry: [String: Any] = ["seconds": slot.seconds, "finished": slot.finished]
+                    if !slot.projects.isEmpty { hourEntry["projects"] = Self.stored(slot.projects) }
+                    return (String(hour), hourEntry)
                 })
             }
             return entry

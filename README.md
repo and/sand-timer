@@ -41,9 +41,18 @@ desktop, sitting above whatever you are working in.
   minutes or hours — and a thin line along the timer's base fills as the sand runs through
   the day, full at the target. Hover over the base to read it off, like `21:18/60:00 today`.
   With the timer hidden in the menu bar the figure shows there beside the time left.
+- **Projects**: make them in **Settings…**, each with a name and any colour, and time is
+  counted against whichever is on. The sand takes the project's colour, so you can see what
+  you're working on at a glance. Switch from **Project** in the right-click menu (or the menu
+  bar), or **shake the timer** side to side to move on to the next project ticked for Shake —
+  the project's name is printed on the top cap's lower ring. Time is kept against the project itself, not its
+  name or colour, so renaming or recolouring one never disturbs its history, and removing
+  one keeps its time in Statistics.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
   you finished, hour by hour, day by day, week by week, month by month and year by year.
-  Hover a bar to read it off. It counts only time the sand was actually running, and it never
+  Hover a bar to read it off. Once you use projects, each bar is split by project in their
+  colours, with a legend, a breakdown of the span you're looking at, and a menu to narrow the
+  chart to one project. It counts only time the sand was actually running, and it never
   leaves your Mac — unless you ask it to: **Export…** saves the whole record as a CSV
   file, grouped the way you are looking at it, for a spreadsheet or a timesheet.
 
