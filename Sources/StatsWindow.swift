@@ -8,7 +8,7 @@ struct Statistics {
     var sand: NSColor
 }
 
-/// A small window of what the timer has done: time run and timers finished, grouped by day, week, month or year.
+/// A small window of what the timer has done: time run and timers finished, grouped by hour, day, week, month or year.
 /// One window, reused: asking for it again brings the same one back to the front.
 final class StatsPanel: NSPanel, NSWindowDelegate {
     private static var shared: StatsPanel?
@@ -82,11 +82,11 @@ final class StatsView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 470, height: 340))
         picker.segmentStyle = .automatic
         picker.segmentDistribution = .fillEqually
-        picker.segmentCount = SandLog.Period.allCases.count
-        for group in SandLog.Period.allCases {
-            picker.setLabel(group.name, forSegment: group.rawValue)
+        picker.segmentCount = SandLog.Period.shown.count
+        for (segment, group) in SandLog.Period.shown.enumerated() {
+            picker.setLabel(group.name, forSegment: segment)
         }
-        picker.selectedSegment = period.rawValue
+        picker.selectedSegment = SandLog.Period.shown.firstIndex(of: period) ?? 0
         picker.target = self
         picker.action = #selector(periodPicked)
         addSubview(picker)
@@ -102,7 +102,7 @@ final class StatsView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     @objc private func periodPicked() {
-        period = SandLog.Period(rawValue: picker.selectedSegment) ?? .daily
+        period = SandLog.Period.shown.indices.contains(picker.selectedSegment) ? SandLog.Period.shown[picker.selectedSegment] : .daily
         UserDefaults.standard.set(period.rawValue, forKey: "statsPeriod")
         hovered = nil
         reload()

@@ -137,6 +137,49 @@ func statsTests() {
             expect(SandLog.goalTicks(target: 5400).allSatisfy { $0 > 0 && $0 < 1 }, "none at either end")
         }
 
+        test("an hourly view gathers the time into the hours it ran in, the one happening now last") {
+            var log = SandLog()
+            log.add(seconds: 600, on: day(2026, 9, 20, hour: 9), calendar: calendar)
+            log.add(seconds: 300, finished: 1, on: calendar.date(byAdding: .minute, value: 40, to: day(2026, 9, 20, hour: 9))!, calendar: calendar)
+            log.add(seconds: 120, on: now, calendar: calendar)                        // 10:00, the hour happening now
+            log.add(seconds: 900, on: day(2026, 9, 19, hour: 11), calendar: calendar)   // yesterday, 23 hours back
+            log.add(seconds: 60, on: day(2026, 9, 19, hour: 9), calendar: calendar)     // 25 hours back: out of view
+            let hours = log.buckets(.hourly, at: now, calendar: calendar)
+            expect(hours.count == 24, "a day of bars, got \(hours.count)")
+            expect(hours.last?.seconds == 120 && hours.last?.title == "This hour", "now: \(String(describing: hours.last))")
+            expect(hours[hours.count - 2].seconds == 900 && hours[hours.count - 2].finished == 1, "nine o'clock: both runs and the finish")
+            expect(hours[hours.count - 2].title == "Last hour")
+            expect(hours.first?.seconds == 900, "eleven yesterday opens the chart")
+            expect(hours.map(\.seconds).reduce(0, +) == 1920, "and the hour before it is left out")
+            expect(log.buckets(.daily, at: now, calendar: calendar).last?.seconds == 1020, "the day's total is unchanged by any of it")
+        }
+
+        test("an hourly export starts at the first hour kept, and says which hour each row is") {
+            var log = SandLog()
+            log.add(seconds: 600, on: day(2026, 9, 20, hour: 8), calendar: calendar)
+            let rows = log.csv(.hourly, at: now, calendar: calendar).split(separator: "\n").map(String.init)
+            expect(rows.count == 4, "08:00, 09:00 and 10:00, and a header: \(rows.count)")
+            expect(rows[1] == "2026-09-20 08:00,2026-09-20 09:00,600,10.0,0", "got \(rows[1])")
+            expect(rows.last?.hasPrefix("2026-09-20 10:00,2026-09-20 11:00,") == true, "got \(rows.last ?? "")")
+        }
+
+        test("the hours survive a restart, an older record without them still loads, and old detail is let go") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
+            defer { defaults.removeObject(forKey: SandLog.defaultsKey) }
+            var log = SandLog()
+            log.add(seconds: 1500, finished: 1, on: day(2026, 9, 20, hour: 14), calendar: calendar)
+            log.save(to: defaults)
+            expect(SandLog.load(from: defaults) == log, "hours and all come back")
+            let older = SandLog.load(stored: ["2026-09-01": ["seconds": 300.0, "finished": 1]])
+            expect(older.days["2026-09-01"]?.seconds == 300 && older.days["2026-09-01"]?.hours.isEmpty == true, "a day from before the hours")
+            var aged = SandLog()
+            aged.add(seconds: 600, on: day(2025, 3, 2), calendar: calendar)
+            aged.add(seconds: 600, on: now, calendar: calendar)
+            aged.prune(at: now, calendar: calendar)
+            expect(aged.days["2025-03-02"]?.seconds == 600 && aged.days["2025-03-02"]?.hours.isEmpty == true, "old: total kept, hours let go")
+            expect(aged.days["2026-09-20"]?.hours.isEmpty == false, "recent hours kept")
+        }
+
         test("the record survives a restart") {
             let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
             defaults.removeObject(forKey: SandLog.defaultsKey)

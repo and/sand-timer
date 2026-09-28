@@ -73,12 +73,12 @@ enum SandTimerMCP {
         func schema(_ properties: [String: Any]) -> [String: Any] {
             ["type": "object", "properties": properties, "additionalProperties": false]
         }
-        let period: [String: Any] = ["type": "string", "enum": ["daily", "weekly", "monthly", "yearly"],
+        let period: [String: Any] = ["type": "string", "enum": ["hourly", "daily", "weekly", "monthly", "yearly"],
                                      "description": "How to group the time. Daily if not given."]
         return [
             ["name": "sand_timer_stats",
              "description": """
-                How long the sand ran and how many timers ran all the way out, grouped by day, week, month or year, \
+                How long the sand ran and how many timers ran all the way out, grouped by hour, day, week, month or year, \
                 for every span since the first day recorded. Spans where the timer went unused are included, with \
                 zeros. \(freshness)
                 """,
@@ -96,7 +96,7 @@ enum SandTimerMCP {
              "inputSchema": schema(["from": ["type": "string", "description": "The first day, yyyy-MM-dd. The first day recorded if not given."],
                                     "to": ["type": "string", "description": "The last day, yyyy-MM-dd. Today if not given."]])],
             ["name": "sand_timer_csv",
-             "description": "The whole record as CSV, the same file the timer's Export button writes: Start, End, seconds, minutes, timers finished.",
+             "description": "The whole record as CSV, the same file the timer's Export button writes: Start, End, seconds, minutes, timers finished. Hourly rows give Start and End as yyyy-MM-dd HH:00.",
              "inputSchema": schema(["period": period])],
             ["name": "sand_timer_status",
              "description": """
@@ -192,8 +192,8 @@ enum SandTimerMCP {
 
     private static func span(_ bucket: SandLog.Bucket, period: SandLog.Period, now: Date,
                              calendar: Calendar) -> [String: Any] {
-        ["start": SandLog.dayKey(bucket.start, calendar: calendar),
-         "end": SandLog.dayKey(SandLog.lastDay(of: bucket.start, period: period, at: now, calendar: calendar), calendar: calendar),
+        let bounds = SandLog.bounds(of: bucket.start, period: period, at: now, calendar: calendar)
+        return ["start": bounds.start, "end": bounds.end,
          "seconds": seconds(bucket.seconds), "minutes": minutes(bucket.seconds),
          "label": SandLog.durationLabel(bucket.seconds), "timers": bucket.finished]
     }

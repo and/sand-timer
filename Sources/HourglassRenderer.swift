@@ -587,7 +587,7 @@ final class HourglassRenderer {
     /// the letters wrap around the curved ring, take on its lighting and shine, and sit slightly into the surface.
     /// Like a real display, it never draws outside the ring, and it fades as it switches on or off.
     private func drawBaseDisplay(_ display: BaseDisplay, theme: Theme) {
-        guard display.brightness > 0.01, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        guard display.brightness > 0.01 else { return }
         let ring = CGRect(x: 19, y: 354, width: 162, height: 28)
         let center = CGPoint(x: cx, y: 365.5)
         var glyphs = wrappedLabelPath(display.text, ringCenterY: center.y, ringRadius: ring.width / 2)
@@ -595,9 +595,18 @@ final class HourglassRenderer {
             var turn = CGAffineTransform(translationX: center.x, y: center.y).rotated(by: display.rotation).translatedBy(x: -center.x, y: -center.y)
             glyphs = glyphs.copy(using: &turn) ?? glyphs
         }
+        printOnRing(glyphs, ring: ring, clip: CGRect(x: ring.minX, y: ring.minY, width: ring.width, height: 23),  // the ring's face above the base disc
+                    alpha: CGFloat(display.brightness), theme: theme)
+    }
+
+    /// Letters printed on one of the base's rings, made to read as part of the plastic: pressed slightly into it, the
+    /// ink shaded like the ring (darker toward the edges, brightest where it catches the light), and the ring's shine
+    /// running straight across them. Nothing is drawn outside `clip`.
+    private func printOnRing(_ glyphs: CGPath, ring: CGRect, clip: CGRect, alpha: CGFloat, theme: Theme) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
-        ctx.clip(to: CGRect(x: ring.minX, y: ring.minY, width: ring.width, height: 23))  // the ring's face above the base disc
-        ctx.setAlpha(CGFloat(display.brightness))
+        ctx.clip(to: clip)
+        ctx.setAlpha(alpha)
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         defer {
             ctx.endTransparencyLayer()
@@ -616,7 +625,6 @@ final class HourglassRenderer {
         fill(offsetY: 0.6, NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4))
         fill(offsetY: -0.5, NSColor(white: 0, alpha: theme.darkCap ? 0.5 : 0.25))
 
-        // Ink shaded like the ring it's printed on: darker toward the edges, brightest where the ring catches the light.
         let ink = theme.displayInk
         ctx.saveGState()
         ctx.addPath(glyphs)
@@ -627,7 +635,6 @@ final class HourglassRenderer {
             (ink, 0.6),
             (ink.blended(withFraction: 0.55, of: .black) ?? ink, 1)
         )?.draw(in: ring, angle: 0)
-        // The ring's shine runs straight across the letters.
         NSGraphicsContext.current?.cgContext.setAlpha(theme.darkCap ? 0.35 : 0.25)
         NSGradient(colors: [NSColor(white: 1, alpha: 0), NSColor(white: 1, alpha: 1), NSColor(white: 1, alpha: 0)])?
             .draw(in: NSBezierPath(rect: CGRect(x: ring.minX + 8, y: ring.minY + ring.height * 0.35, width: ring.width - 16, height: 3)), angle: 0)
@@ -718,39 +725,12 @@ final class HourglassRenderer {
             ctx.strokePath()
             ctx.restoreGState()
         }
-        // The day's figure, printed across the plate in place of the line while hovered, in the same pressed-in style
-        // and nearly the same size as the time above it.
+        // The day's figure, printed across the plate in place of the line while hovered, the same way as the time on
+        // the ring above: wrapped round the plate, pressed in, shaded and shone on like the plastic.
         if let figure = display.goalFigure, figureShown > 0.01 {
-            let font = NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
-            let line = CTLineCreateWithAttributedString(NSAttributedString(string: figure, attributes: [.font: font]))
-            let textWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-            let baseline = 388.5 + font.capHeight / 2  // centred on the plate
-            let glyphs = CGMutablePath()
-            for run in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
-                let count = CTRunGetGlyphCount(run)
-                var ids = [CGGlyph](repeating: 0, count: count)
-                var positions = [CGPoint](repeating: .zero, count: count)
-                CTRunGetGlyphs(run, CFRange(), &ids)
-                CTRunGetPositions(run, CFRange(), &positions)
-                let runFont = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName as String] as! CTFont
-                for i in 0..<count {
-                    guard let outline = CTFontCreatePathForGlyph(runFont, ids[i], nil) else { continue }
-                    glyphs.addPath(outline, transform: CGAffineTransform(translationX: cx - textWidth / 2 + positions[i].x, y: baseline).scaledBy(x: 1, y: -1))
-                }
-            }
-            ctx.saveGState()
-            ctx.setAlpha(CGFloat(display.brightness) * figureShown)
-            for (offset, color) in [(CGFloat(0.5), NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4)),
-                                    (CGFloat(-0.4), NSColor(white: 0, alpha: theme.darkCap ? 0.5 : 0.25)),
-                                    (CGFloat(0), theme.displayInk)] {
-                ctx.saveGState()
-                ctx.translateBy(x: 0, y: offset)
-                ctx.addPath(glyphs)
-                ctx.setFillColor(color.cgColor)
-                ctx.fillPath()
-                ctx.restoreGState()
-            }
-            ctx.restoreGState()
+            let plate = CGRect(x: 7, y: 377, width: 186, height: 23)
+            let glyphs = wrappedLabelPath(figure, ringCenterY: plate.midY, ringRadius: plate.width / 2, size: 15)
+            printOnRing(glyphs, ring: plate, clip: plate, alpha: CGFloat(display.brightness) * figureShown, theme: theme)
         }
         // Fine marks cut across the groove, so the fill can be read against a scale. Etched: a dark notch with the
         // light catching its far edge, seen through the sand as much as beside it.
@@ -773,9 +753,9 @@ final class HourglassRenderer {
 
     /// Outlines of the label's glyphs, centered on the ring and wrapped around it: each character is pushed toward
     /// the middle and narrowed by how far round the cylinder it sits, as seen from the front.
-    private func wrappedLabelPath(_ text: String, ringCenterY: CGFloat, ringRadius: CGFloat) -> CGPath {
+    private func wrappedLabelPath(_ text: String, ringCenterY: CGFloat, ringRadius: CGFloat, size: CGFloat = 16) -> CGPath {
         // Monospaced digits so the label doesn't jitter as seconds tick.
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         let baseline = ringCenterY + font.capHeight / 2

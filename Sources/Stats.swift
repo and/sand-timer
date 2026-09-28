@@ -1,9 +1,19 @@
 import Foundation
 
 /// What the timer has done, kept as one entry per day: how long its sand ran, and how many timers ran all the way
-/// out. Every view of the statistics — by day, week, month or year — is a sum over those days.
+/// out, with the same broken down by hour. Every view of the statistics — by day, week, month or year — is a sum over
+/// those days, and the hourly view a sum over their hours.
 struct SandLog: Equatable {
     struct Day: Equatable {
+        var seconds: TimeInterval = 0
+        var finished: Int = 0
+        /// The same, hour by hour (0 to 23, local time), for the hourly view. Days recorded before the hours were kept
+        /// have none, and the detail is let go after a year while the day's totals stay.
+        var hours: [Int: Slot] = [:]
+    }
+
+    /// What one hour holds.
+    struct Slot: Equatable {
         var seconds: TimeInterval = 0
         var finished: Int = 0
     }
@@ -22,20 +32,24 @@ struct SandLog: Equatable {
     }
 
     /// How the statistics are grouped.
+    /// Hourly comes last in the list so that a choice already saved by its number still means the same period.
     enum Period: Int, CaseIterable {
-        case daily, weekly, monthly, yearly
+        case daily, weekly, monthly, yearly, hourly
+
+        /// The order the picker shows them in: shortest first.
+        static let shown: [Period] = [.hourly, .daily, .weekly, .monthly, .yearly]
 
         /// What the picker calls it.
-        var name: String { ["Daily", "Weekly", "Monthly", "Yearly"][rawValue] }
-        var unit: Calendar.Component { [.day, .weekOfYear, .month, .year][rawValue] }
+        var name: String { ["Daily", "Weekly", "Monthly", "Yearly", "Hourly"][rawValue] }
+        var unit: Calendar.Component { [.day, .weekOfYear, .month, .year, .hour][rawValue] }
         /// How many spans the chart shows, the one happening now last.
-        var span: Int { [14, 12, 12, 5][rawValue] }
+        var span: Int { [14, 12, 12, 5, 24][rawValue] }
         /// What the span happening now is called.
-        var currentTitle: String { ["Today", "This week", "This month", "This year"][rawValue] }
-        fileprivate var labelTemplate: String { ["d", "d MMM", "MMM", "yyyy"][rawValue] }
+        var currentTitle: String { ["Today", "This week", "This month", "This year", "This hour"][rawValue] }
+        fileprivate var labelTemplate: String { ["d", "d MMM", "MMM", "yyyy", "j"][rawValue] }
         /// Only a day is worth naming twice; a week, month or year has nothing to add underneath.
         fileprivate var subLabelTemplate: String? { self == .daily ? "EEEEE" : nil }
-        fileprivate var titleTemplate: String { ["EEEE d MMM", "d MMM", "MMMM yyyy", "yyyy"][rawValue] }
+        fileprivate var titleTemplate: String { ["EEEE d MMM", "d MMM", "MMMM yyyy", "yyyy", "EEEE j"][rawValue] }
     }
 
     /// Keyed yyyy-MM-dd in local time, so the keys sort and compare like the days they stand for.
@@ -59,6 +73,11 @@ struct SandLog: Equatable {
         var day = days[key] ?? Day()
         day.seconds += max(0, seconds)
         day.finished += finished
+        let hour = calendar.component(.hour, from: date)
+        var slot = day.hours[hour] ?? Slot()
+        slot.seconds += max(0, seconds)
+        slot.finished += finished
+        day.hours[hour] = slot
         days[key] = day
     }
 
@@ -84,9 +103,19 @@ struct SandLog: Equatable {
         return buckets(period, starts: starts, calendar: calendar)
     }
 
+    /// The first hour the record has hour by hour: where an hourly export starts, rather than at the first day of all.
+    func firstHour(calendar: Calendar = .current) -> Date? {
+        days.compactMap { key, day -> Date? in
+            guard let hour = day.hours.filter({ $0.value.seconds > 0 || $0.value.finished > 0 }).keys.min(),
+                  let start = Self.date(forDayKey: key, calendar: calendar) else { return nil }
+            return calendar.date(bySettingHour: hour, minute: 0, second: 0, of: start)
+        }.min()
+    }
+
     /// Every span from the first day recorded to the one happening now: what an export covers.
     func allBuckets(_ period: Period, at now: Date, calendar: Calendar = .current) -> [Bucket] {
-        guard let current = calendar.dateInterval(of: period.unit, for: now)?.start, let first = firstDay(calendar: calendar),
+        let from = period == .hourly ? firstHour(calendar: calendar) : firstDay(calendar: calendar)
+        guard let current = calendar.dateInterval(of: period.unit, for: now)?.start, let first = from,
               var start = calendar.dateInterval(of: period.unit, for: first)?.start else { return [] }
         var starts: [Date] = []
         while start <= current {
@@ -101,11 +130,22 @@ struct SandLog: Equatable {
         guard let first = starts.first else { return [] }
 
         var totals = [Day](repeating: Day(), count: starts.count)
+        func add(_ seconds: TimeInterval, _ finished: Int, at date: Date) {
+            guard date >= first, let index = starts.lastIndex(where: { $0 <= date }) else { return }
+            totals[index].seconds += seconds
+            totals[index].finished += finished
+        }
         for (key, day) in days {
-            guard let date = Self.date(forDayKey: key, calendar: calendar), date >= first,
-                  let index = starts.lastIndex(where: { $0 <= date }) else { continue }
-            totals[index].seconds += day.seconds
-            totals[index].finished += day.finished
+            guard let date = Self.date(forDayKey: key, calendar: calendar) else { continue }
+            if period == .hourly {
+                // The hours before the day's start are nowhere in view, so a day that ended before the first bar is skipped whole.
+                guard calendar.date(byAdding: .day, value: 1, to: date).map({ $0 > first }) ?? false else { continue }
+                for (hour, slot) in day.hours {
+                    if let start = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) { add(slot.seconds, slot.finished, at: start) }
+                }
+            } else {
+                add(day.seconds, day.finished, at: date)
+            }
         }
 
         let labels = Self.formatter(period.labelTemplate, calendar: calendar)
@@ -118,6 +158,7 @@ struct SandLog: Equatable {
             if period == .weekly { title = "Week of \(title)" }
             if index == last { title = period.currentTitle }
             if index == last - 1 && period == .daily { title = "Yesterday" }
+            if index == last - 1 && period == .hourly { title = "Last hour" }
             return Bucket(label: labels.string(from: start), subLabel: subLabels?.string(from: start), title: title,
                           start: start, seconds: day.seconds, finished: day.finished)
         }
@@ -132,12 +173,17 @@ struct SandLog: Equatable {
         return formatter
     }
 
-    /// Forgets days older than the longest view can reach back, so the record can't grow without end.
+    /// Forgets days older than the longest view can reach back, so the record can't grow without end, and the
+    /// hour-by-hour detail of days more than a year ago, keeping their totals.
     mutating func prune(at now: Date, calendar: Calendar = .current) {
         guard let thisYear = calendar.dateInterval(of: .year, for: now)?.start,
               let oldest = calendar.date(byAdding: .year, value: -(Period.yearly.span - 1), to: thisYear) else { return }
         let cutoff = Self.dayKey(oldest, calendar: calendar)
         days = days.filter { $0.key >= cutoff }
+        if let yearAgo = calendar.date(byAdding: .year, value: -1, to: now) {
+            let detailCutoff = Self.dayKey(yearAgo, calendar: calendar)
+            for key in days.keys where key < detailCutoff && !(days[key]?.hours.isEmpty ?? true) { days[key]?.hours = [:] }
+        }
     }
 
     /// How long the sand ran, in the shortest form that still reads naturally: "3h 20m", "45m", "12s".
@@ -194,6 +240,15 @@ struct SandLog: Equatable {
                       parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
     }
 
+    /// A span's first and last moments as an export writes them: days as yyyy-MM-dd, and an hour as yyyy-MM-dd HH:00.
+    static func bounds(of start: Date, period: Period, at now: Date, calendar: Calendar = .current) -> (start: String, end: String) {
+        guard period == .hourly else {
+            return (dayKey(start, calendar: calendar), dayKey(lastDay(of: start, period: period, at: now, calendar: calendar), calendar: calendar))
+        }
+        func hour(_ date: Date) -> String { dayKey(date, calendar: calendar) + String(format: " %02d:00", calendar.component(.hour, from: date)) }
+        return (hour(start), hour(calendar.date(byAdding: .hour, value: 1, to: start) ?? start))
+    }
+
     /// The last day a span covers, and for the span still running, today.
     static func lastDay(of start: Date, period: Period, at now: Date, calendar: Calendar = .current) -> Date {
         let nextStart = calendar.date(byAdding: period.unit, value: 1, to: start) ?? start
@@ -206,8 +261,8 @@ struct SandLog: Equatable {
     func csv(_ period: Period, at now: Date, calendar: Calendar = .current) -> String {
         var rows = ["Start,End,Time run (seconds),Time run (minutes),Timers finished"]
         for bucket in allBuckets(period, at: now, calendar: calendar) {
-            let last = Self.lastDay(of: bucket.start, period: period, at: now, calendar: calendar)
-            rows.append([Self.dayKey(bucket.start, calendar: calendar), Self.dayKey(last, calendar: calendar),
+            let span = Self.bounds(of: bucket.start, period: period, at: now, calendar: calendar)
+            rows.append([span.start, span.end,
                          String(format: "%.0f", bucket.seconds), String(format: "%.1f", bucket.seconds / 60),
                          "\(bucket.finished)"].joined(separator: ","))
         }
@@ -229,12 +284,25 @@ extension SandLog {
     static func load(stored: [String: [String: Any]]) -> SandLog {
         var log = SandLog()
         for (key, entry) in stored {
-            log.days[key] = Day(seconds: entry["seconds"] as? Double ?? 0, finished: entry["finished"] as? Int ?? 0)
+            var day = Day(seconds: entry["seconds"] as? Double ?? 0, finished: entry["finished"] as? Int ?? 0)
+            for (hour, slot) in entry["hours"] as? [String: [String: Any]] ?? [:] {
+                guard let hour = Int(hour), (0..<24).contains(hour) else { continue }
+                day.hours[hour] = Slot(seconds: slot["seconds"] as? Double ?? 0, finished: slot["finished"] as? Int ?? 0)
+            }
+            log.days[key] = day
         }
         return log
     }
 
     func save(to defaults: UserDefaults = .standard) {
-        defaults.set(days.mapValues { ["seconds": $0.seconds, "finished": $0.finished] as [String: Any] }, forKey: Self.defaultsKey)
+        defaults.set(days.mapValues { day -> [String: Any] in
+            var entry: [String: Any] = ["seconds": day.seconds, "finished": day.finished]
+            if !day.hours.isEmpty {
+                entry["hours"] = Dictionary(uniqueKeysWithValues: day.hours.map { hour, slot in
+                    (String(hour), ["seconds": slot.seconds, "finished": slot.finished] as [String: Any])
+                })
+            }
+            return entry
+        }, forKey: Self.defaultsKey)
     }
 }

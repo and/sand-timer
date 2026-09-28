@@ -42,8 +42,8 @@ desktop, sitting above whatever you are working in.
   the day, full at the target. Hover over the base to read it off, like `21:18/60:00 today`.
   With the timer hidden in the menu bar the figure shows there beside the time left.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
-  you finished, day by day, week by week, month by month and year by year. Hover a bar to
-  read that day off. It counts only time the sand was actually running, and it never
+  you finished, hour by hour, day by day, week by week, month by month and year by year.
+  Hover a bar to read it off. It counts only time the sand was actually running, and it never
   leaves your Mac — unless you ask it to: **Export…** saves the whole record as a CSV
   file, grouped the way you are looking at it, for a spreadsheet or a timesheet.
 
@@ -113,8 +113,8 @@ If the file already has other servers, add `"sand-timer"` beside them rather tha
 the block — and mind the commas, since Claude Desktop ignores the whole file if the JSON is
 invalid. Quit Claude Desktop and open it again; the timer then appears in the tools menu.
 
-It reads what the Statistics window shows — time run and timers finished, by day, week,
-month or year, plus the same CSV the Export button writes — and it can tell you what the
+It reads what the Statistics window shows — time run and timers finished, by hour, day,
+week, month or year, plus the same CSV the Export button writes — and it can tell you what the
 timer is doing right now. It makes no network calls and nothing is uploaded. Nothing runs
 until Claude asks it something.
 
