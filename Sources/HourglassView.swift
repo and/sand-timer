@@ -149,6 +149,9 @@ final class HourglassView: NSView {
     /// A project just switched to: its name fades in on the top cap.
     private var projectFlash: (name: String, since: Date)?
     private static let projectFlashDuration = 0.35
+    /// A session just ended: the sand left on top slides down to join the rest, from where it was.
+    private var ending: (from: Double, start: Date)?
+    private static let endingDuration = 0.7
     /// Time run that hasn't been written out yet, and the moment the record has been counted up to while it runs.
     private var unsavedSeconds: TimeInterval = 0
     private var countedUpTo: Date?
@@ -364,7 +367,9 @@ final class HourglassView: NSView {
         if !flashing, projectFlash != nil { projectFlash = nil; needsDisplay = true }
         let emphasisChanging = timerHover.map { now.timeIntervalSince($0.since) < Self.goalHoverFade } ?? false
         if let timerHover, !timerHover.over, !emphasisChanging { self.timerHover = nil }
-        let settling = displaySwitchingOn || goalHoverChanging(at: now) || flashing || emphasisChanging
+        let endingNow = ending.map { now.timeIntervalSince($0.start) < Self.endingDuration } ?? false
+        if !endingNow, ending != nil { ending = nil; needsDisplay = true }
+        let settling = displaySwitchingOn || goalHoverChanging(at: now) || flashing || emphasisChanging || endingNow
         if let goalHover, !goalHover.over, !goalHoverChanging(at: now) { self.goalHover = nil }
         let trailing = clock.finishTime.map { now > $0 && now.timeIntervalSince($0) < Self.tailDuration } ?? false
         let animating = running || moving || settling || trailing
@@ -393,6 +398,10 @@ final class HourglassView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let now = Date()
         var frame = SandFrame(progress: clock.progress(at: now))
+        if let ending {
+            let t = min(1, now.timeIntervalSince(ending.start) / Self.endingDuration)
+            frame.progress = ending.from + (1 - ending.from) * t * t * (3 - 2 * t)
+        }
         frame.topSettledProgress = topSettledProgress
         frame.bottomSettledProgress = bottomSettledProgress
         frame.topSlump = topSlump
@@ -854,6 +863,7 @@ final class HourglassView: NSView {
         }
         if lyingAngle == 0 { menu.addItem(item("Flip", #selector(flipClicked))) }
         menu.addItem(item("Restart", #selector(restartClicked)))
+        if clock.isRunning(at: now) || clock.isPaused(at: now) { menu.addItem(item("End Session", #selector(endClicked))) }
         menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))  // something to do with the timer, not a setting
         menu.addItem(.separator())
 
@@ -1007,6 +1017,34 @@ final class HourglassView: NSView {
         guard flip == nil, tip == nil else { return }
         if lyingAngle != 0 { tipOver(to: 0, then: restart) } else { restart() }
     }
+
+    /// Ends the session here: done for now. The time run is kept, but it isn't a finished timer — the sand didn't run
+    /// out — so nothing chimes and the finished count stays honest. The sand still on top settles to the bottom, a
+    /// paused timer is stood back up first, and the timer then waits to be clicked, free to change project.
+    @objc func endClicked() {
+        let end = { [weak self] in
+            guard let self else { return }
+            let now = Date()
+            guard clock.isRunning(at: now) || clock.isPaused(at: now) else { return }
+            recordRun(finished: false, at: now)
+            ending = (clock.progress(at: now), now)
+            clock = SandClock(duration: clock.duration)  // all the sand below, waiting to be turned over
+            countedUpTo = nil
+            wasRunning = false  // so the tick doesn't take this for the sand running out
+            releasedAt = nil
+            sessionStartedAt = nil
+            agitation.impact(speed: 0.8)  // a soft settle as the sand comes down
+            publishState()
+            needsDisplay = true
+        }
+        guard flip == nil, tip == nil else { return }
+        let now = Date()
+        guard clock.isRunning(at: now) || clock.isPaused(at: now) else { return }
+        if lyingAngle != 0 { tipOver(to: 0, then: end) } else { end() }
+    }
+
+    /// Ends the session, as `sandtimer://end` asks: waits for the glass to be still, like the other commands.
+    func endSession() { whenStill { [weak self] in self?.endClicked() } }
 
     @objc private func hideClicked() { onHide?() }
 
@@ -1275,15 +1313,8 @@ final class HourglassView: NSView {
     /// The name printed on the top cap: the project that's on, or nothing. Tests look here.
     var shownProjectName: String? { projects.project(activeProjectID)?.name }
 
-    /// Picked from the menu. Between sessions it simply switches; during one, under One Thing at a Time, it closes that
-    /// session and starts a fresh one with the new project — a deliberate new start rather than a hop mid-session. The
-    /// time already run stays with the project it was run for.
     @objc private func projectPicked(_ sender: NSMenuItem) {
-        let id = sender.representedObject as? String
-        guard !canSwitchProject else { return switchProject(to: id) }
-        guard projects.project(id)?.id != activeProjectID else { return }
-        switchProject(to: id, force: true)
-        restartClicked()
+        switchProject(to: sender.representedObject as? String)
     }
 
     /// The Project submenu: every project in use with the active one ticked, No Project, and a way to manage them.
@@ -1291,11 +1322,16 @@ final class HourglassView: NSView {
         let parent = NSMenuItem(title: "Project", action: nil, keyEquivalent: "")
         let menu = NSMenu()
         menu.autoenablesItems = false
-        if !canSwitchProject {
-            // Said plainly: choosing another project here is a fresh start, not a hop.
-            let note = NSMenuItem(title: "Picking one starts a new session", action: nil, keyEquivalent: "")
+        // Under One Thing at a Time, mid-session: the projects wait, and ending the session — a choice made on purpose,
+        // right here — is the way to another one.
+        let open = canSwitchProject
+        if !open {
+            let note = NSMenuItem(title: "End the session to switch", action: nil, keyEquivalent: "")
             note.isEnabled = false
             menu.addItem(note)
+            let end = NSMenuItem(title: "End Session", action: #selector(endClicked), keyEquivalent: "")
+            end.target = self
+            menu.addItem(end)
             menu.addItem(.separator())
         }
         for project in projects.visible {
@@ -1304,12 +1340,14 @@ final class HourglassView: NSView {
             entry.representedObject = project.id
             entry.state = project.id == activeProjectID ? .on : .off
             entry.image = NSColor(hex: project.color).map(Self.swatch)
+            entry.isEnabled = open
             menu.addItem(entry)
         }
         if !projects.visible.isEmpty { menu.addItem(.separator()) }
         let none = NSMenuItem(title: ProjectList.untitled, action: #selector(projectPicked(_:)), keyEquivalent: "")
         none.target = self
         none.state = activeProjectID == nil ? .on : .off
+        none.isEnabled = open
         menu.addItem(none)
         menu.addItem(.separator())
         let manage = NSMenuItem(title: "Manage Projects…", action: #selector(settingsClicked), keyEquivalent: "")

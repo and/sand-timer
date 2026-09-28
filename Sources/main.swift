@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case "pause": view.pauseSession()
             case "resume": view.resumeSession()
             case "restart": view.startSession(minutes: nil)
+            case "end": view.endSession()
             default: NSLog("Sand Timer: no command called \(command)")
             }
             updateStatusTitle()
@@ -154,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Everything you would do to a running timer, without bringing it back out.
         if let title = view?.pauseActionTitle { add(title, #selector(togglePause), target: self) }
         add("Restart", #selector(restartTimer), target: self)
+        if view?.pauseActionTitle != nil { add("End Session", #selector(endSession), target: self) }
         if let project = view?.projectMenuItem() { menu.addItem(project) }  // switching project needs no timer on screen
         menu.addItem(.separator())
         // The sand is silent while the timer is hidden, but the chimes still ring, so the sound settings belong here.
@@ -170,6 +172,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePause() {
         view?.togglePause()
+        updateStatusTitle()
+    }
+
+    @objc private func endSession() {
+        view?.endClicked()
         updateStatusTitle()
     }
 

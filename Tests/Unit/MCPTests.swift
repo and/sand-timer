@@ -40,6 +40,8 @@ private final class FakeTimer {
             state = TimerState(minutes: length, started: now, runningUntil: now.addingTimeInterval(Double(length * 60)), updated: now)
         case "pause":
             state = TimerState(minutes: state.minutes, started: state.started, pausedWith: state.remaining(at: now), updated: now)
+        case "end":
+            state = TimerState(minutes: state.minutes, updated: now)
         case "resume":
             state = TimerState(minutes: state.minutes, started: state.started,
                                runningUntil: now.addingTimeInterval(state.remaining(at: now)), updated: now)
@@ -102,7 +104,7 @@ func mcpTests() {
             let tools = try require((response["result"] as? [String: Any])?["tools"] as? [[String: Any]], "the tools")
             let names = tools.compactMap { $0["name"] as? String }
             expect(names == ["sand_timer_stats", "sand_timer_today", "sand_timer_days", "sand_timer_csv",
-                             "sand_timer_status", "sand_timer_start", "sand_timer_pause", "sand_timer_resume"],
+                             "sand_timer_status", "sand_timer_start", "sand_timer_pause", "sand_timer_resume", "sand_timer_end"],
                    "got \(names)")
             for tool in tools {
                 let name = tool["name"] as? String ?? "?"
@@ -215,6 +217,9 @@ func mcpTests() {
             let resumed = try fields(try answer("sand_timer_resume").text)
             expect(resumed["state"] as? String == "running", "got \(resumed)")
             expect(timer.sent.map(\.command) == ["start", "pause", "resume"], "sent \(timer.sent.map(\.command))")
+            let ended = try fields(try answer("sand_timer_end").text)
+            expect(ended["state"] as? String == "waiting to be flipped" && ended["started_at"] == nil, "got \(ended)")
+            expect(timer.sent.last?.command == "end")
         }
 
         test("with control turned off it asks for it, and does not touch the timer") {

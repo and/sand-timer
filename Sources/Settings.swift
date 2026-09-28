@@ -85,7 +85,7 @@ final class SettingsView: NSView {
              "Keeps the timer wherever you let go of it, instead of dropping it to the bottom of the screen",
              "Lets sandtimer:// links start, pause, resume and restart the timer",
              "Asks GitHub once a day whether a newer Sand Timer has been released",
-             "Mid-session, picking a project starts a new session."][rawValue]
+             "End the session to switch projects."][rawValue]
         }
     }
 

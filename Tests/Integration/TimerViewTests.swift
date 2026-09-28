@@ -681,17 +681,26 @@ func timerViewTests() {
                 timer.view.switchProject(to: "t-b")
                 expect(timer.view.activeProjectID == "t-a", "a switch mid-session is declined")
                 let item = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }?.submenu, "the Project menu")
-                expect(item.items.first?.title == "Picking one starts a new session", "got \(item.items.first?.title ?? "")")
+                expect(item.items.first?.title == "End the session to switch", "got \(item.items.first?.title ?? "")")
+                expect(item.items.first { $0.title == "Writing" }?.isEnabled == false, "the projects wait")
+                expect(item.items.first { $0.title == "No project" }?.isEnabled == false)
+                let end = try require(item.items.first { $0.title == "End Session" }, "End Session, right there")
+                expect(end.isEnabled)
                 timer.menu("pauseClicked"); timer.settle()
                 expect(!timer.view.canSwitchProject, "nor while it's paused: the session isn't over")
                 timer.grabBody(); timer.shakeSideways(strokes: 5); timer.releaseTopCap(); timer.settle()
                 expect(timer.view.activeProjectID == "t-a", "and a shake mid-session changes nothing")
-                // Picking another from the menu is a fresh start: that session ends, and a new one runs for Writing.
-                let writing = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }?.submenu?.items.first { $0.title == "Writing" }, "Writing")
-                _ = (writing.target as? NSObject)?.perform(writing.action, with: writing)
+                // Ending the session on purpose opens the projects again.
+                _ = (end.target as? NSObject)?.perform(end.action, with: end)
                 timer.settle()
-                expect(timer.view.activeProjectID == "t-b", "on Writing now")
-                expect(timer.isRunning && timer.view.secondsLeft > 295, "in a new session, from the top: \(timer.view.secondsLeft)")
+                expect(!timer.isRunning && !timer.isPaused, "the session is over")
+                let after = try require(timer.view.makeMenu().items.first { $0.title.hasPrefix("Project") }?.submenu, "the Project menu")
+                expect(!after.items.contains { $0.title == "End Session" }, "nothing to end now")
+                let writing = try require(after.items.first { $0.title == "Writing" }, "Writing")
+                expect(writing.isEnabled)
+                _ = (writing.target as? NSObject)?.perform(writing.action, with: writing)
+                expect(timer.view.activeProjectID == "t-b", "and the switch goes through")
+                timer.click(); timer.settle()
                 timer.menu("restartClicked"); timer.settle()
                 timer.view.oneThingToggled()
                 expect(timer.view.canSwitchProject, "turned off, it can change at any time")
@@ -777,6 +786,44 @@ func timerViewTests() {
 
     // What the timer publishes about itself, and whether it takes commands, are one setting per Mac — so these
     // run on their own rather than beside the other test processes, which share them.
+    suite("Ending a session") {
+        test("End Session keeps the time run but doesn't count a finished timer, and the timer waits", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let today = { timer.view.statistics.log.days[SandLog.dayKey(Date())] ?? SandLog.Day() }
+            let before = today()
+            expect(!timer.view.makeMenu().items.contains { $0.title == "End Session" }, "nothing to end before it starts")
+            timer.click(); timer.run(1.5)
+            expect(timer.view.makeMenu().items.contains { $0.title == "End Session" }, "offered while the sand runs")
+            timer.menu("endClicked"); timer.run(0.9)
+            expect(!timer.isRunning && !timer.isPaused, "ended: neither running nor paused")
+            let after = today()
+            expect(after.seconds - before.seconds > 1.0, "the time run is kept: \(after.seconds - before.seconds)")
+            expect(after.finished == before.finished, "but it isn't a finished timer")
+            timer.run(0.5)
+            expect(today().finished == before.finished, "not even a moment later")
+            expect(timer.view.menuBarTime == nil, "nothing left to count down")
+            timer.click(); timer.run(0.8)
+            expect(timer.isRunning, "a click starts the next one")
+            timer.menu("endClicked"); timer.settle()
+        }
+        test("a paused session is stood up and ended, and then the project can change", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer { timer.view.updateProjects(before); timer.view.switchProject(to: active) }
+            timer.view.updateProjects(ProjectList(all: [Project(id: "e-a", name: "A", color: "#2876E2"), Project(id: "e-b", name: "B", color: "#E8833A")]))
+            timer.view.switchProject(to: "e-a")
+            if !timer.view.oneThingAtATime { timer.view.oneThingToggled() }
+            timer.click(); timer.run(1.0)
+            timer.menu("pauseClicked"); timer.settle()
+            expect(!timer.view.canSwitchProject, "held while paused")
+            timer.menu("endClicked"); timer.settle()
+            expect(!timer.isRunning && !timer.isPaused, "ended")
+            expect(timer.view.canSwitchProject, "and free to change project")
+            timer.view.switchProject(to: "e-b")
+            expect(timer.view.activeProjectID == "e-b")
+        }
+    }
+
     suite("Control from outside") {
         test("a command starts a session of the length it asked for, and says so where others can read it", serial: true) {
             let timer = TimerHarness(minutes: 25)
@@ -811,6 +858,16 @@ func timerViewTests() {
             expect(timer.isRunning, "the last word wins, once the glass has settled")
             let state = TimerState.load(stored: UserDefaults.standard.dictionary(forKey: TimerState.key))
             expect(state.isRunning(at: Date()), "and it is written down as running: \(state)")
+        }
+        test("an end command ends the session, and says so", serial: true) {
+            let timer = TimerHarness(minutes: 25)
+            timer.view.startSession(minutes: 5)
+            timer.settle(); timer.run(0.5)
+            timer.view.endSession()
+            timer.run(0.9)
+            expect(!timer.isRunning && !timer.isPaused, "ended")
+            let state = TimerState.load(stored: UserDefaults.standard.dictionary(forKey: TimerState.key))
+            expect(!state.isRunning(at: Date()) && !state.isPaused(at: Date()) && state.started == nil, "written down as waiting: \(state)")
         }
         test("commands are refused until the menu allows them", serial: true) {
             let timer = TimerHarness()

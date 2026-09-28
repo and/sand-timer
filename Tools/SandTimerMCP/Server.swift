@@ -120,6 +120,12 @@ enum SandTimerMCP {
             ["name": "sand_timer_resume",
              "description": "Stands a paused timer back up and lets the sand run on from where it stopped.",
              "inputSchema": schema([:])],
+            ["name": "sand_timer_end",
+             "description": """
+                Ends the session now, running or paused: done for now. The time run so far is kept in the record, but \
+                it doesn't count as a finished timer. The timer then waits to be started again.
+                """,
+             "inputSchema": schema([:])],
         ]
     }
 
@@ -130,7 +136,7 @@ enum SandTimerMCP {
         switch tool {
         case "sand_timer_status":
             return text(json(describe(access.state(), at: now, projects: access.projects())))
-        case "sand_timer_start", "sand_timer_pause", "sand_timer_resume":
+        case "sand_timer_start", "sand_timer_pause", "sand_timer_resume", "sand_timer_end":
             guard access.allowsControl() else { return text(controlOff, isError: true) }
             let command = String(tool.dropFirst("sand_timer_".count))
             switch access.send(command, command == "start" ? arguments["minutes"] as? Int : nil) {

@@ -52,7 +52,7 @@ sand would quietly give the wrong answer. A command that arrives while the glass
 settle rather than being dropped — a hand would have waited too.
 
 Commands go the other way as `sandtimer://` links — `start?minutes=25`, `pause`, `resume`,
-`restart` — which the app takes through `application(_:open:)` and only while the menu's
+`restart`, `end` — which the app takes through `application(_:open:)` and only while the menu's
 control setting is on. The app writes what it is doing into `timerState` in its settings
 whenever that changes, which is how the server can answer "how long is left?" without
 asking the app anything. `Sources/TimerState.swift` defines that note, and is built into
