@@ -73,6 +73,11 @@ struct BaseDisplay {
     var brightness: Double = 1
     /// Turn of the text against the glass's rotation (radians), so it stays upright on screen while fading.
     var rotation: Double = 0
+    /// How much of the day's target the sand has run, 1 being all of it, or nil when there is no target. Drawn as a
+    /// line along the base plate that fills from the left, and switches on and off with the display above it.
+    var goal: Double?
+    /// Where marks fall along that line, as fractions of the target.
+    var goalTicks: [Double] = []
 }
 
 /// Draws the timer in a 200 x 400 unit space (y grows downward, neck at y = 200).
@@ -202,6 +207,7 @@ final class HourglassRenderer {
 
         if let layers { drawLayer(layers.front) } else { drawGlassFront(theme: theme) }
         drawBaseDisplay(display, theme: theme)
+        drawGoalLine(display, theme: theme)
     }
 
     // MARK: Cached layers
@@ -622,6 +628,107 @@ final class HourglassRenderer {
         NSGraphicsContext.current?.cgContext.setAlpha(theme.darkCap ? 0.35 : 0.25)
         NSGradient(colors: [NSColor(white: 1, alpha: 0), NSColor(white: 1, alpha: 1), NSColor(white: 1, alpha: 0)])?
             .draw(in: NSBezierPath(rect: CGRect(x: ring.minX + 8, y: ring.minY + ring.height * 0.35, width: ring.width - 16, height: 3)), angle: 0)
+        ctx.restoreGState()
+    }
+
+    /// The day's progress against its target, as a groove let into the front of the base plate under the time. It runs
+    /// parallel to the plate's edges, which are straight, so the timer still sits flat on the bottom of the screen; the
+    /// depth comes from the light instead. The groove is
+    /// pressed into the plastic the way the time is, and what fills it is round like a tube — lit along the top, dark
+    /// along the bottom — and shaded along its length like the plate, dark at the ends, full at the target.
+    private func drawGoalLine(_ display: BaseDisplay, theme: Theme) {
+        guard let goal = display.goal, display.brightness > 0.01, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let left: CGFloat = 17, right: CGFloat = 183
+        let edgeY: CGFloat = 391.6, width: CGFloat = 4.4
+
+        /// The groove's centre line from the left end to `end`, lowered by `drop`.
+        func curve(to end: CGFloat, drop: CGFloat = 0) -> CGPath {
+            let path = CGMutablePath()
+            var x = left
+            path.move(to: CGPoint(x: x, y: edgeY + drop))
+            while x < end {
+                x = min(end, x + 4)
+                path.addLine(to: CGPoint(x: x, y: edgeY + drop))
+            }
+            return path
+        }
+        func stroke(_ path: CGPath, width: CGFloat, _ color: NSColor) {
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.setLineWidth(width)
+            ctx.setLineCap(.round)
+            ctx.setStrokeColor(color.cgColor)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+
+        ctx.saveGState()
+        ctx.setAlpha(CGFloat(display.brightness))
+        let whole = curve(to: right)
+        // Pressed into the plastic: light catches the lower lip, and the upper edge falls into shadow.
+        stroke(curve(to: right, drop: 0.9), width: width, NSColor(white: 1, alpha: theme.darkCap ? 0.16 : 0.4))
+        stroke(whole, width: width, NSColor(white: 0, alpha: theme.darkCap ? 0.6 : 0.42))
+        stroke(curve(to: right, drop: -1.3), width: 0.9, NSColor(white: 0, alpha: 0.35))
+
+        let done = CGFloat(min(1, max(0, goal)))
+        // Once the day's target is met the sand warms a little and the end of the groove glows softly.
+        let reached = goal >= 1
+        let sand = reached ? (theme.sand.blended(withFraction: 0.3, of: NSColor(red: 1, green: 0.82, blue: 0.4, alpha: 1)) ?? theme.sand) : theme.sand
+        if reached {
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: 7, color: sand.withAlphaComponent(0.95).cgColor)
+            ctx.addPath(curve(to: right))
+            ctx.setLineWidth(width - 0.8)
+            ctx.setLineCap(.round)
+            ctx.setStrokeColor(sand.cgColor)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        if done > 0 {
+            let filled = curve(to: left + (right - left) * done)
+            ctx.saveGState()
+            ctx.addPath(filled)
+            ctx.setLineWidth(width - 0.4)
+            ctx.setLineCap(.round)
+            ctx.replacePathWithStrokedPath()
+            ctx.clip()
+            NSGradient(colorsAndLocations:
+                (sand.blended(withFraction: 0.5, of: .black) ?? sand, 0),
+                (sand.blended(withFraction: 0.2, of: .white) ?? sand, 0.24),
+                (sand, 0.6),
+                (sand.blended(withFraction: 0.55, of: .black) ?? sand, 1)
+            )?.draw(in: CGRect(x: left - 2, y: edgeY - 3, width: right - left + 4, height: 10), angle: 0)
+            // Round like a tube: the underside falls away into shadow, following the curve.
+            ctx.addPath(curve(to: right, drop: 1.5))
+            ctx.setLineWidth(1.6)
+            ctx.setStrokeColor(NSColor(white: 0, alpha: 0.4).cgColor)
+            ctx.strokePath()
+            ctx.restoreGState()
+            // A glint along the top of the sand, following the same curve.
+            ctx.saveGState()
+            ctx.addPath(curve(to: left + (right - left) * done, drop: -1.1))
+            ctx.setLineWidth(0.7)
+            ctx.setLineCap(.round)
+            ctx.setStrokeColor(NSColor(white: 1, alpha: 0.38).cgColor)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        // Fine marks cut across the groove, so the fill can be read against a scale. Etched: a dark notch with the
+        // light catching its far edge, seen through the sand as much as beside it.
+        for tick in display.goalTicks where tick > 0 && tick < 1 {
+            let x = left + (right - left) * CGFloat(tick)
+            let top = edgeY - width / 2 - 0.3, bottom = edgeY + width / 2 + 0.3
+            for (offset, color) in [(CGFloat(0.7), NSColor(white: 1, alpha: theme.darkCap ? 0.22 : 0.4)),
+                                    (CGFloat(0), NSColor(white: 0, alpha: 0.55))] {
+                ctx.saveGState()
+                ctx.move(to: CGPoint(x: x + offset, y: top))
+                ctx.addLine(to: CGPoint(x: x + offset, y: bottom))
+                ctx.setLineWidth(0.8)
+                ctx.setStrokeColor(color.cgColor)
+                ctx.strokePath()
+                ctx.restoreGState()
+            }
+        }
         ctx.restoreGState()
     }
 

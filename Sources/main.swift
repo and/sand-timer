@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             minutes: defaults.object(forKey: "minutes") as? Int ?? HourglassView.defaultMinutes,
             themeIndex: defaults.integer(forKey: "theme"),
             baseIndex: defaults.integer(forKey: "base"),
-            sizeIndex: HourglassView.mediumSizeIndex  // always starts at Medium; the Size menu changes it for this session
+            sizeIndex: HourglassView.savedSizeIndex()  // the size last chosen in the Appearance menu; Medium to begin with
         )
 
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: view.frame.size),
@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.panel = panel
         self.view = view
         if defaults.bool(forKey: "hidden") { hideToMenuBar() } else { panel.orderFrontRegardless() }
+        view.restoreSession()  // a run that was going, or paused, when the app was last closed carries on
         view.publishState()  // so anything reading from outside knows what the timer is doing from the start
         UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
         keepItOnEveryDesktop()
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        view?.publishState()  // so the next launch knows exactly how much sand was left
         view?.flushStatistics()  // the last stretch of sand still counts
     }
 
@@ -107,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Start Sand Timer when you log in?"
-        alert.informativeText = "You can change this any time from the timer's right-click menu."
+        alert.informativeText = "You can change this any time from Settings, in the timer's right-click menu."
         alert.addButton(withTitle: "Start at Login")
         alert.addButton(withTitle: "Not Now")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -157,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         view?.soundMenuItems().forEach { menu.addItem($0) }
         menu.addItem(.separator())
         add("Statistics…", #selector(HourglassView.statsClicked), target: view)
+        add("Settings…", #selector(HourglassView.settingsClicked), target: view)
         if let update = UpdateChecker.shared.available {
             add("Update to \(Updates.label(update.version))…", #selector(HourglassView.updateClicked), target: view)
         }
@@ -185,7 +188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateStatusTitle() {
-        statusItem?.button?.title = view?.menuBarTime.map { " " + $0 } ?? ""
+        // The time left, then the day's progress against its target, when there is one.
+        let parts = [view?.menuBarTime, view?.dailyGoalLabel].compactMap { $0 }
+        statusItem?.button?.title = parts.isEmpty ? "" : " " + parts.joined(separator: "  ·  ")
     }
 
     /// Where it was last left horizontally (if that's still on a screen), else the right side; the view then settles it

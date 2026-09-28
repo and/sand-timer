@@ -115,6 +115,28 @@ func statsTests() {
                    "named for the moment it was saved: \(SandLog.exportFilename(at: now, calendar: calendar))")
         }
 
+        test("today's progress against a daily target reads as minutes and seconds") {
+            expect(SandLog.goalLabel(seconds: 21 * 60 + 18, target: 3600) == "21:18/60:00", SandLog.goalLabel(seconds: 1278, target: 3600))
+            expect(SandLog.goalLabel(seconds: 0, target: 1800) == "0:00/30:00", "nothing run yet")
+            expect(SandLog.goalLabel(seconds: 3600 + 5, target: 3600) == "60:05/60:00", "past the target it goes on counting")
+            expect(SandLog.goalLabel(seconds: 59.9, target: 60) == "0:59/1:00", "a second isn't counted until it is over")
+            expect(SandLog.goalLabel(seconds: 4878, target: 7200) == "1:21:18/2:00:00", "a long target is read in hours")
+            var log = SandLog()
+            log.add(seconds: 300, on: now, calendar: calendar)
+            log.add(seconds: 900, on: day(2026, 9, 19), calendar: calendar)
+            expect(log.seconds(on: now, calendar: calendar) == 300, "only today's sand counts toward today")
+            expect(SandLog().seconds(on: now, calendar: calendar) == 0)
+        }
+
+        test("the marks along the base fall at round amounts of time inside the target") {
+            expect(SandLog.goalTicks(target: 3 * 3600) == [1.0 / 3, 2.0 / 3], "hours for three hours: \(SandLog.goalTicks(target: 10800))")
+            expect(SandLog.goalTicks(target: 3600) == [0.25, 0.5, 0.75], "quarters of an hour for one: \(SandLog.goalTicks(target: 3600))")
+            expect(SandLog.goalTicks(target: 8 * 3600).count == 3, "every two hours for eight")
+            expect(SandLog.goalTicks(target: 120).isEmpty, "a target too short to mark has none")
+            expect(SandLog.goalTicks(target: 0).isEmpty, "and no target has none")
+            expect(SandLog.goalTicks(target: 5400).allSatisfy { $0 > 0 && $0 < 1 }, "none at either end")
+        }
+
         test("the record survives a restart") {
             let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
             defaults.removeObject(forKey: SandLog.defaultsKey)

@@ -156,6 +156,33 @@ struct SandLog: Equatable {
         return ladder.first { most / $0 <= 4 } ?? ladder[ladder.count - 1]
     }
 
+    /// Today's progress against a daily target, as minutes and seconds: "21:18/60:00". A target of a hundred minutes or
+    /// more would make those numbers hard to read at a glance, so it switches to hours: "1:21:18/2:00:00".
+    static func goalLabel(seconds: TimeInterval, target: TimeInterval) -> String {
+        let hours = target >= 6000
+        func clock(_ value: TimeInterval) -> String {
+            let total = max(0, Int(value.rounded(.down)))
+            return hours
+                ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+                : String(format: "%d:%02d", total / 60, total % 60)
+        }
+        return "\(clock(seconds))/\(clock(target))"
+    }
+
+    /// Where the marks along the base fall for a daily target, as fractions of it: at each round amount of time that
+    /// divides it into a few parts — hours for three hours, quarters of an hour for one. None when the target is too
+    /// short to mark.
+    static func goalTicks(target: TimeInterval) -> [Double] {
+        guard target > 0 else { return [] }
+        let step = gridStep(for: target)
+        return stride(from: step, to: target - 1, by: step).map { $0 / target }
+    }
+
+    /// How long the sand has run on the day `date` falls in.
+    func seconds(on date: Date, calendar: Calendar = .current) -> TimeInterval {
+        days[Self.dayKey(date, calendar: calendar)]?.seconds ?? 0
+    }
+
     /// "5 timers" or "1 timer", for the count that ran all the way out.
     static func timersLabel(_ count: Int) -> String { "\(count) timer" + (count == 1 ? "" : "s") }
 

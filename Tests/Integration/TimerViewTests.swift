@@ -423,18 +423,166 @@ func timerViewTests() {
         }
     }
 
+    suite("Settings and the daily target") {
+        test("the menu opens the settings, and no longer carries the switches that live there") {
+            let titles = TimerHarness().view.makeMenu().items.map(\.title)
+            expect(titles.contains("Settings…"), "got \(titles)")
+            for moved in ["Start at Login", "Float Anywhere", "Control from Claude & Shortcuts", "Check for Updates"] {
+                expect(!titles.contains(moved), "\(moved) belongs in the settings: \(titles)")
+            }
+        }
+        test("the settings window shows what is set, and its switches work the timer", serial: true) {
+            let timer = TimerHarness()
+            let wasFloating = timer.view.floats
+            defer { if timer.view.floats != wasFloating { timer.menu("floatToggled") } }
+            SettingsPanel.show(for: timer.view)
+            defer { SettingsPanel.open?.close() }
+            let settings = try require(SettingsPanel.open?.settings, "the window")
+            expect(Set(settings.switches.keys) == ["Start at Login", "Float Anywhere", "Control from Claude & Shortcuts", "Check for Updates"],
+                   "got \(settings.switches.keys.sorted())")
+            let float = try require(settings.switches["Float Anywhere"], "the switch")
+            expect((float.state == .on) == timer.view.floats, "it starts out showing what the timer does")
+            float.performClick(nil)
+            expect(timer.view.floats != wasFloating, "and clicking it changes the timer")
+        }
+        test("a daily target puts today's progress on the base, and none takes it away") {
+            let timer = TimerHarness()
+            let before = timer.view.dailyTargetMinutes
+            defer { timer.view.setDailyTarget(minutes: before) }
+            timer.view.setDailyTarget(minutes: 0)
+            expect(timer.view.dailyGoalLabel == nil, "no label without a target")
+            timer.view.setDailyTarget(minutes: 60)
+            let label = try require(timer.view.dailyGoalLabel, "a label with one")
+            expect(label.hasSuffix("/60:00"), "the target is on the right: \(label)")
+            let seconds = timer.view.statistics.log.seconds(on: Date())
+            expect(label == SandLog.goalLabel(seconds: seconds, target: 3600), "and today's sand on the left: \(label)")
+            timer.view.setDailyTarget(minutes: 90_000)
+            expect(timer.view.dailyTargetMinutes == HourglassView.longestDailyTarget, "a target can't be longer than a day")
+            timer.view.setDailyTarget(minutes: -5)
+            expect(timer.view.dailyGoalLabel == nil, "and a negative one means none")
+        }
+        test("the base plate says what its line stands for when hovered, and the line is drawn") {
+            let timer = TimerHarness()
+            let before = timer.view.dailyTargetMinutes
+            defer { timer.view.setDailyTarget(minutes: before) }
+            func base() throws -> [UInt8] {
+                let rep = try require(timer.view.bitmapImageRepForCachingDisplay(in: timer.view.bounds), "a bitmap")
+                timer.view.cacheDisplay(in: timer.view.bounds, to: rep)
+                let data = try require(rep.bitmapData, "pixels")
+                let row = Int(timer.view.bounds.midY / timer.view.bounds.height * CGFloat(rep.pixelsHigh) + 190 * timer.scale * CGFloat(rep.pixelsHigh) / timer.view.bounds.height)
+                let start = row * rep.bytesPerRow
+                return Array(UnsafeBufferPointer(start: data + start, count: rep.bytesPerRow))
+            }
+            timer.view.setDailyTarget(minutes: 0)
+            let bare = try base()
+            expect(timer.view.goalToolTipText == "", "nothing to say without a target")
+            timer.view.setDailyTarget(minutes: 1)
+            let ruled = try base()
+            expect(bare != ruled, "the line is drawn along the base once there is a target")
+            expect(timer.view.goalToolTipText.contains("/1:00 today"), "and hovering says how far along: \(timer.view.goalToolTipText)")
+        }
+        test("running the timer moves today's progress") {
+            let timer = TimerHarness()
+            let before = timer.view.dailyTargetMinutes
+            defer { timer.view.setDailyTarget(minutes: before) }
+            timer.view.setDailyTarget(minutes: 60)
+            let start = timer.view.statistics.log.seconds(on: Date())
+            timer.click(); timer.run(2.2)
+            timer.menu("pauseClicked"); timer.run(0.4)
+            let run = timer.view.statistics.log.seconds(on: Date()) - start
+            expect(run > 1.5 && run < 3.5, "about two seconds went on the day, got \(run)")
+            expect(timer.view.dailyGoalLabel == SandLog.goalLabel(seconds: start + run, target: 3600), "and the label follows")
+        }
+        test("the target is set from the window, in minutes or in hours") {
+            let timer = TimerHarness()
+            let before = timer.view.dailyTargetMinutes
+            defer { timer.view.setDailyTarget(minutes: before) }
+            timer.view.setDailyTarget(minutes: 0)
+            SettingsPanel.show(for: timer.view)
+            defer { SettingsPanel.open?.close() }
+            let settings = try require(SettingsPanel.open?.settings, "the window")
+            expect(settings.targetCheck.state == .off && !settings.targetField.isEnabled, "off, and the number waits")
+            settings.targetCheck.performClick(nil)
+            expect(timer.view.dailyTargetMinutes == 60, "switching it on starts from an hour: \(timer.view.dailyTargetMinutes)")
+            settings.targetField.doubleValue = 2.5
+            settings.unitPicker.selectItem(at: 1)
+            _ = settings.targetField.target?.perform(settings.targetField.action, with: settings.targetField)
+            expect(timer.view.dailyTargetMinutes == 150, "two and a half hours: \(timer.view.dailyTargetMinutes)")
+            settings.targetField.doubleValue = 45
+            settings.unitPicker.selectItem(at: 0)
+            _ = settings.targetField.target?.perform(settings.targetField.action, with: settings.targetField)
+            expect(timer.view.dailyTargetMinutes == 45, "forty-five minutes: \(timer.view.dailyTargetMinutes)")
+            settings.targetField.doubleValue = 30
+            settings.unitPicker.selectItem(at: 0)
+            settings.saveButton.performClick(nil)
+            expect(timer.view.dailyTargetMinutes == 30, "Save takes a number that Return was never pressed on: \(timer.view.dailyTargetMinutes)")
+            expect(SettingsPanel.open == nil, "and closes the window")
+            SettingsPanel.show(for: timer.view)
+            settings.targetCheck.performClick(nil)
+            expect(timer.view.dailyTargetMinutes == 0 && !settings.targetField.isEnabled, "switched off again")
+        }
+    }
+
+    suite("Picking up where it left off") {
+        test("a run that was going carries on with the sand it had left", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let note = TimerState(minutes: 5, started: Date().addingTimeInterval(-90), runningUntil: Date().addingTimeInterval(120),
+                                  pausedWith: nil, updated: Date()).stored
+            timer.view.restoreSession(from: note)
+            expect(timer.isRunning, "running again")
+            let left = timer.view.secondsLeft
+            expect(abs(left - 120) < 2, "with about two minutes to go, got \(left)")
+        }
+        test("a paused run is laid down again with what it had left", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let note = TimerState(minutes: 5, started: Date().addingTimeInterval(-200), runningUntil: nil,
+                                  pausedWith: 100, updated: Date()).stored
+            timer.view.restoreSession(from: note)
+            timer.settle()
+            expect(timer.isPaused, "paused")
+            let left = timer.view.secondsLeft
+            expect(abs(left - 100) < 2, "with 100 seconds left, got \(left)")
+        }
+        test("a run that finished while the app was away stays finished", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let note = TimerState(minutes: 5, started: Date().addingTimeInterval(-400), runningUntil: Date().addingTimeInterval(-30),
+                                  pausedWith: nil, updated: Date()).stored
+            timer.view.restoreSession(from: note)
+            expect(!timer.isRunning && !timer.isPaused, "nothing to pick up")
+            timer.view.restoreSession(from: nil)
+            expect(!timer.isRunning && !timer.isPaused, "and nothing written down means nothing to pick up")
+        }
+        test("a note written for a different length is left alone", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let note = TimerState(minutes: 25, started: Date(), runningUntil: Date().addingTimeInterval(600), pausedWith: nil, updated: Date()).stored
+            timer.view.restoreSession(from: note)
+            expect(!timer.isRunning, "it isn't this timer's run")
+        }
+        test("the size chosen last time is the size it starts at") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
+            defaults.removeObject(forKey: "size")
+            expect(HourglassView.savedSizeIndex(defaults) == HourglassView.mediumSizeIndex, "Medium to begin with")
+            defaults.set(2, forKey: "size")
+            expect(HourglassView.savedSizeIndex(defaults) == 2, "Large, once chosen")
+            defaults.set(9, forKey: "size")
+            expect(HourglassView.savedSizeIndex(defaults) == HourglassView.mediumSizeIndex, "a size that doesn't exist falls back to Medium")
+            defaults.removeObject(forKey: "size")
+        }
+    }
+
     suite("Update checks") {
-        test("the menu offers Check for Updates, and it can be turned off and on again") {
+        test("Check for Updates is a setting, and it can be turned off and on again") {
             let timer = TimerHarness()
             let wasOn = UpdateChecker.shared.isEnabled
             defer { UpdateChecker.shared.setEnabled(wasOn) }
             UpdateChecker.shared.setEnabled(true)
-            let on = try require(timer.view.makeMenu().items.first { $0.title == "Check for Updates" }, "the menu item")
-            expect(on.state == .on, "ticked while the app looks for updates")
-            timer.menu("updateChecksToggled")
+            SettingsPanel.show(for: timer.view)
+            defer { SettingsPanel.open?.close() }
+            let box = try require(SettingsPanel.open?.settings.switches["Check for Updates"], "the setting")
+            expect(box.state == .on, "ticked while the app looks for updates")
+            box.performClick(nil)
             expect(!UpdateChecker.shared.isEnabled, "turned off")
-            let off = try require(timer.view.makeMenu().items.first { $0.title == "Check for Updates" }, "the menu item")
-            expect(off.state == .off, "and the tick goes with it")
+            expect(box.state == .off, "and the tick goes with it")
             expect(UpdateChecker.shared.available == nil, "nothing is offered while the check is off")
             timer.menu("updateChecksToggled")
             expect(UpdateChecker.shared.isEnabled, "and back on")
@@ -484,9 +632,11 @@ func timerViewTests() {
             defer { if timer.view.allowsControl != wasAllowed { timer.menu("controlToggled") } }
             if timer.view.allowsControl { timer.menu("controlToggled") }
             expect(!timer.view.allowsControl, "off to begin with")
-            let item = try require(timer.view.makeMenu().items.first { $0.title == "Control from Claude & Shortcuts" }, "the menu item")
-            expect(item.state == .off, "and the menu says so")
-            timer.menu("controlToggled")
+            SettingsPanel.show(for: timer.view)
+            defer { SettingsPanel.open?.close() }
+            let box = try require(SettingsPanel.open?.settings.switches["Control from Claude & Shortcuts"], "the setting")
+            expect(box.state == .off, "and the settings say so")
+            box.performClick(nil)
             expect(timer.view.allowsControl && UserDefaults.standard.bool(forKey: TimerState.controlKey), "turned on and remembered")
         }
     }

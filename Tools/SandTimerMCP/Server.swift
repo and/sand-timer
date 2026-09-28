@@ -36,7 +36,7 @@ enum SandTimerMCP {
 
     /// What to say when the timer is there but not listening.
     static let controlOff = """
-        Sand Timer isn't accepting commands. Right-click the timer and turn on \
+        Sand Timer isn't accepting commands. Right-click the timer, open Settings and turn on \
         "Control from Claude & Shortcuts", then try again.
         """
 

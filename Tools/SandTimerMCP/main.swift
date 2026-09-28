@@ -60,7 +60,7 @@ func send(_ command: String, minutes: Int?) -> Result<TimerState, Unreachable> {
     }
     return .failure(Unreachable(reason: """
         Sand Timer didn't answer. It may not be running, or "Control from Claude & Shortcuts" may be off in \
-        its right-click menu.
+        the timer's Settings.
         """))
 }
 

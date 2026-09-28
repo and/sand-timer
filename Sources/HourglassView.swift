@@ -15,6 +15,11 @@ final class HourglassView: NSView {
     static let supportURL = URL(string: "https://github.com/and/sand-timer#support-it")!
     static let sizes: [(name: String, scale: CGFloat)] = [("Small", 0.5), ("Medium", 0.7), ("Large", 1.0)]
     static let mediumSizeIndex = 1
+    /// The size chosen last time, or Medium the first time.
+    static func savedSizeIndex(_ defaults: UserDefaults = .standard) -> Int {
+        let saved = defaults.object(forKey: "size") as? Int ?? mediumSizeIndex
+        return sizes.indices.contains(saved) ? saved : mediumSizeIndex
+    }
     static let pad: CGFloat = 12
     private static let flipDuration = 0.6
     /// Toppling over takes a moment of gathering speed; being stood back up is a gentler lift.
@@ -149,6 +154,7 @@ final class HourglassView: NSView {
         self.sizeIndex = Self.sizes.indices.contains(sizeIndex) ? sizeIndex : 1
         clock = SandClock(duration: TimeInterval(self.minutes * 60))
         super.init(frame: NSRect(origin: .zero, size: Self.contentSize(sizeIndex: self.sizeIndex)))
+        placeGoalToolTip()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -434,7 +440,8 @@ final class HourglassView: NSView {
         // The base display switches off as the timer is tipped to flip it, and the one that ends up at the bottom
         // switches on as the sand starts falling again.
         func ease(_ t: Double) -> Double { let x = min(1, max(0, t)); return x * x * (3 - 2 * x) }
-        var display = BaseDisplay(text: clock.remainingLabel(progress: frame.progress))
+        var display = BaseDisplay(text: clock.remainingLabel(progress: frame.progress), goal: dailyGoalFraction,
+                              goalTicks: SandLog.goalTicks(target: TimeInterval(dailyTargetMinutes * 60)))
         if let flip {
             display.brightness = 1 - ease(now.timeIntervalSince(flip.start) / Self.displayFade)
             display.rotation = -angle
@@ -828,28 +835,14 @@ final class HourglassView: NSView {
         soundMenuItems().forEach { menu.addItem($0) }
         menu.addItem(.separator())
 
-        let login = item("Start at Login", #selector(loginToggled))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
-        let float = item("Float Anywhere", #selector(floatToggled))
-        float.state = floats ? .on : .off
-        menu.addItem(float)
-        let control = item("Control from Claude & Shortcuts", #selector(controlToggled))
-        control.state = allowsControl ? .on : .off
-        control.toolTip = "Lets sandtimer:// links start, pause, resume and restart the timer"
-        menu.addItem(control)
-        menu.addItem(.separator())
         menu.addItem(item("Statistics…", #selector(statsClicked)))
+        menu.addItem(item("Settings…", #selector(settingsClicked)))
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
         menu.addItem(.separator())
 
         if let update = UpdateChecker.shared.available {
             menu.addItem(item("Update to \(Updates.label(update.version))…", #selector(updateClicked)))
         }
-        let updates = item("Check for Updates", #selector(updateChecksToggled))
-        updates.state = UpdateChecker.shared.isEnabled ? .on : .off
-        updates.toolTip = "Asks GitHub once a day whether a newer Sand Timer has been released"
-        menu.addItem(updates)
         if let version = Updates.currentVersion {
             let running = NSMenuItem(title: "Sand Timer \(Updates.label(version))", action: nil, keyEquivalent: "")
             running.isEnabled = false
@@ -978,14 +971,14 @@ final class HourglassView: NSView {
 
     @objc private func hideClicked() { onHide?() }
 
-    @objc private func floatToggled() {
+    @objc func floatToggled() {
         floats.toggle()
         UserDefaults.standard.set(floats, forKey: "float")
         letGo()  // floating: stay put; not floating any more: fall to the bottom of the screen
     }
     @objc private func supportClicked() { NSWorkspace.shared.open(Self.supportURL) }
 
-    @objc private func updateChecksToggled() { UpdateChecker.shared.setEnabled(!UpdateChecker.shared.isEnabled) }
+    @objc func updateChecksToggled() { UpdateChecker.shared.setEnabled(!UpdateChecker.shared.isEnabled) }
 
     /// Opens the page for the newer release. Nothing is downloaded or installed on the user's behalf.
     @objc func updateClicked() { NSWorkspace.shared.open(UpdateChecker.shared.available?.page ?? Updates.releasesPage) }
@@ -1011,6 +1004,26 @@ final class HourglassView: NSView {
             state.pausedWith = clock.remaining(at: now)
         }
         UserDefaults.standard.set(state.stored, forKey: TimerState.key)
+    }
+
+    /// Seconds of sand left, as of now.
+    var secondsLeft: TimeInterval { clock.remaining(at: Date()) }
+
+    /// Picks up a run where the last launch left it: sand that was flowing carries on from where it would have got to,
+    /// and a paused timer is laid down again with what it had left. A run that finished while the app was away is
+    /// simply over, and gets no chime now. Only the app's own start-up calls this; it is the note `publishState` keeps.
+    func restoreSession(from stored: [String: Any]? = UserDefaults.standard.dictionary(forKey: TimerState.key)) {
+        let now = Date()
+        let state = TimerState.load(stored: stored)
+        let left = state.remaining(at: now)
+        guard state.minutes == minutes, left > 0, flip == nil, tip == nil, !clock.isRunning(at: now) else { return }
+        // Restored as running, whichever it was: a paused one is then paused in the ordinary way, which lays it down.
+        clock = SandClock(duration: clock.duration, progress: 1 - min(1, left / clock.duration), runningSince: now)
+        sessionStartedAt = state.started ?? now
+        releasedAt = .distantPast  // the stream is already falling, not starting to
+        if state.isPaused(at: now) { DispatchQueue.main.async { [weak self] in self?.pauseClicked() } }
+        publishState()
+        needsDisplay = true
     }
 
     /// Starts a fresh session, optionally of a different length: what `sandtimer://start` asks for.
@@ -1044,13 +1057,64 @@ final class HourglassView: NSView {
         needsDisplay = true
     }
 
-    @objc private func controlToggled() {
+    @objc func controlToggled() {
         allowsControl.toggle()
         UserDefaults.standard.set(allowsControl, forKey: TimerState.controlKey)
         publishState()
     }
 
     // MARK: Statistics
+
+    /// Minutes of running time to aim for each day; 0 is no target. The label beside the timer shows today's progress.
+    static let dailyTargetKey = "dailyTargetMinutes"
+    private(set) var dailyTargetMinutes = max(0, UserDefaults.standard.integer(forKey: HourglassView.dailyTargetKey))
+
+    /// A day has only so many minutes; anything past that is a typing slip.
+    static let longestDailyTarget = 24 * 60
+
+    func setDailyTarget(minutes: Int) {
+        dailyTargetMinutes = min(Self.longestDailyTarget, max(0, minutes))
+        UserDefaults.standard.set(dailyTargetMinutes, forKey: Self.dailyTargetKey)
+        needsDisplay = true
+    }
+
+    /// "21:18/60:00": how long the sand has run today against the target, or nil when there is no target.
+    var dailyGoalLabel: String? {
+        guard dailyTargetMinutes > 0 else { return nil }
+        return SandLog.goalLabel(seconds: log.seconds(on: Date()), target: TimeInterval(dailyTargetMinutes * 60))
+    }
+
+    /// How much of the target today's sand has run: 1 is all of it, and a day can go past it.
+    private var dailyGoalFraction: Double? {
+        guard dailyTargetMinutes > 0 else { return nil }
+        return log.seconds(on: Date()) / TimeInterval(dailyTargetMinutes * 60)
+    }
+
+    /// Hovering over the base plate says what the line along it stands for: "21:18/60:00 today · 35%".
+    private var goalToolTip: NSView.ToolTipTag?
+
+    /// The tooltip covers the base plate as it is when the timer stands upright, and follows the view's size.
+    private func placeGoalToolTip() {
+        if let goalToolTip { removeToolTip(goalToolTip) }
+        let scale = Self.sizes[sizeIndex].scale
+        let plate = NSRect(x: bounds.midX - 93 * scale, y: bounds.midY + 177 * scale, width: 186 * scale, height: 23 * scale)
+        goalToolTip = addToolTip(plate, owner: self, userData: nil)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        placeGoalToolTip()
+    }
+
+    /// What the tooltip over the base plate says; nothing at all when there is no target.
+    var goalToolTipText: String {
+        guard let label = dailyGoalLabel, let fraction = dailyGoalFraction else { return "" }
+        return "\(label) today · \(Int((fraction * 100).rounded()))%"
+    }
+
+    var startsAtLogin: Bool { SMAppService.mainApp.status == .enabled }
+
+    @objc func settingsClicked() { SettingsPanel.show(for: self) }
 
     /// What the statistics window draws, read afresh each time it refreshes.
     var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand) }
@@ -1089,7 +1153,7 @@ final class HourglassView: NSView {
         unsavedSeconds = 0
     }
 
-    @objc private func loginToggled() {
+    @objc func loginToggled() {
         UserDefaults.standard.set(true, forKey: "loginItemConfigured")
         let service = SMAppService.mainApp
         do {
@@ -1138,6 +1202,7 @@ final class HourglassView: NSView {
         guard let window, flip == nil, tip == nil else { return }
         setExpanded(false)
         sizeIndex = sender.tag
+        UserDefaults.standard.set(sizeIndex, forKey: "size")
         let size = Self.contentSize(sizeIndex: sizeIndex)
         let frame = window.frame
         window.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY, width: size.width, height: size.height), display: true)
@@ -1239,5 +1304,11 @@ final class HourglassView: NSView {
         guard let window else { return }
         let frame = expansion.map { window.frame.insetBy(dx: $0.dx, dy: $0.dy) } ?? window.frame
         UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: "origin")
+    }
+}
+
+extension HourglassView: NSViewToolTipOwner {
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        goalToolTipText
     }
 }

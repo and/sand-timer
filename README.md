@@ -33,9 +33,14 @@ desktop, sitting above whatever you are working in.
 - **Right-click** for everything else: how long to run (1 to 60 minutes, including a
   25-minute 🍅 Pomodoro and 6- and 12-minute blocks for billing time), **Appearance** for the
   colour of the sand, the style of the base and how big it is, whether it makes sounds
-  (including an optional gentle chime each minute), whether it starts when you log in,
+  (including an optional gentle chime each minute), **Settings…**, and hiding it in the
+  menu bar.
+- **Settings…** holds a daily target and the switches: whether it starts when you log in,
   whether it stays where you drop it or falls to the bottom of the screen, whether Claude
-  and Shortcuts may work it, and hiding it in the menu bar.
+  and Shortcuts may work it, and whether it checks for updates. Set a daily target — in
+  minutes or hours — and a thin line along the timer's base fills as the sand runs through
+  the day, full at the target. Hover over the base to read it off, like `21:18/60:00 today`.
+  With the timer hidden in the menu bar the figure shows there beside the time left.
 - **Statistics…**, in that menu, keeps a tally: how long the sand ran and how many timers
   you finished, day by day, week by week, month by month and year by year. Hover a bar to
   read that day off. It counts only time the sand was actually running, and it never
@@ -48,9 +53,9 @@ desktop, sitting above whatever you are working in.
 
 The app checks once a day whether a newer version has been released, and if there is one
 the menu offers it — it only ever opens the release page in your browser, and downloads
-and installs nothing by itself. The menu's **Check for Updates** turns that off, and with
-it off the app makes no network calls at all. Both sit at the foot of the menu, beside
-the line that says which version you are running.
+and installs nothing by itself. **Check for Updates** in Settings turns that off, and with
+it off the app makes no network calls at all. The offer sits at the foot of the menu,
+beside the line that says which version you are running.
 
 When the time is up it chimes. If you would rather keep it out of the way, hide it to
 the menu bar and the time left shows up there instead, where you can pause, resume and
@@ -114,7 +119,7 @@ timer is doing right now. It makes no network calls and nothing is uploaded. Not
 until Claude asks it something.
 
 Claude can also work the timer for you — "start a 20 minute timer", "pause it" — but only
-once you allow it: turn on **Control from Claude & Shortcuts** in the right-click menu. It
+once you allow it: turn on **Control from Claude & Shortcuts** in Settings. It
 is off to begin with, and turning it off again stops the app listening. With it on, the
 timer answers `sandtimer://` links, so Shortcuts, a script or `open sandtimer://start?minutes=25`
 in a terminal can start, pause, resume and restart it too.
