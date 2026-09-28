@@ -80,7 +80,7 @@ unless you ask it to: **Export…** saves the whole record as a CSV file, groupe
 you are looking at it, with a column for each project, for a spreadsheet or a timesheet.
 
 <p align="center">
-  <img src="docs/statistics.png" width="470" alt="The Statistics window in its Daily view: today at 1h 27m with 3 timers finished and a breakdown of DSA 50m and AI 37m, a bar for each of the last fourteen days split into purple DSA, blue AI and pink Job search, a legend under the chart, an All Projects menu, and a line along the bottom giving the total since the first day beside an Export button">
+  <img src="docs/statistics.png" width="470" alt="The Statistics window in its Daily view: today at 1h 27m with 3 timers finished and a breakdown of DSA 50m and AI 37m, a bar for each of the last fourteen days split into purple DSA, blue AI and pink Reading, a legend under the chart, an All Projects menu, and a line along the bottom giving the total since the first day beside an Export button">
 </p>
 
 ### Settings
