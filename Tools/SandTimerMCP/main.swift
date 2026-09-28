@@ -8,7 +8,7 @@ import Foundation
 
 /// The app's preferences, where the record lives. Asked for by name rather than through this program's own
 /// settings: inside the bundle the server shares the app's identifier, which makes a suite of that name meaningless.
-let timerPreferences = "local.sandtimer" as CFString
+let timerPreferences = "io.github.and.SandTimer" as CFString
 
 /// The record as it stands. Read again for every request, and synchronised first, so a timer that has been running
 /// since the last question is counted.

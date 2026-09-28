@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        PreferencesMove.carryOver()  // before anything reads a setting: they may still be under the old name
         let defaults = UserDefaults.standard
         let view = HourglassView(
             minutes: defaults.object(forKey: "minutes") as? Int ?? HourglassView.defaultMinutes,

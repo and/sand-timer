@@ -31,6 +31,27 @@ func projectTests() {
         }
     }
 
+    suite("A new name for the app") {
+        test("settings and the record come across from local.sandtimer, once, and never over newer ones") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-move-tests"), "a scratch settings domain")
+            defer { defaults.removePersistentDomain(forName: "sand-timer-move-tests") }
+            defaults.removePersistentDomain(forName: "sand-timer-move-tests")
+            let old: [String: Any] = [SandLog.defaultsKey: ["2026-09-28": ["seconds": 600.0, "finished": 1]],
+                                      "dailyTargetMinutes": 180, "theme": 2]
+            PreferencesMove.carryOver(into: defaults, from: old)
+            expect(SandLog.load(from: defaults).allTime.seconds == 600, "the record came across")
+            expect(defaults.integer(forKey: "dailyTargetMinutes") == 180 && defaults.integer(forKey: "theme") == 2, "and the settings")
+            defaults.set(60, forKey: "dailyTargetMinutes")
+            PreferencesMove.carryOver(into: defaults, from: old)
+            expect(defaults.integer(forKey: "dailyTargetMinutes") == 60, "only once: a later change stays")
+
+            defaults.removePersistentDomain(forName: "sand-timer-move-tests")
+            defaults.set(["2026-09-29": ["seconds": 30.0, "finished": 0]], forKey: SandLog.defaultsKey)
+            PreferencesMove.carryOver(into: defaults, from: old)
+            expect(SandLog.load(from: defaults).allTime.seconds == 30, "a record already under the new name is left as it is")
+        }
+    }
+
     suite("Shaking to switch") {
         func strokes(_ count: Int, speed: Double = 0.8, every: Double = 0.12) -> Int {
             var gesture = ShakeGesture(), fired = 0, t = 0.0

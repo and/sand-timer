@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/Model.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
+  APP_SOURCES=(Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
@@ -69,6 +69,9 @@ if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
 fi
 
 VERSION=1.8.0
+# The app's identity. It was local.sandtimer up to 1.8.0; the app carries settings and the record over from that on
+# its first launch (Sources/PreferencesMove.swift), and the MCP server reads the same name (Tools/SandTimerMCP/main.swift).
+BUNDLE_ID=io.github.and.SandTimer
 APP=build/SandTimer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -102,7 +105,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>Sand Timer</string>
   <key>CFBundleDisplayName</key><string>Sand Timer</string>
-  <key>CFBundleIdentifier</key><string>local.sandtimer</string>
+  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleExecutable</key><string>SandTimer</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -113,7 +116,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>CFBundleURLTypes</key>
   <array><dict>
-    <key>CFBundleURLName</key><string>local.sandtimer</string>
+    <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
     <key>CFBundleURLSchemes</key><array><string>sandtimer</string></array>
   </dict></array>
   <key>NSHighResolutionCapable</key><true/>
