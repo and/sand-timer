@@ -17,6 +17,8 @@ final class StatsPanel: NSPanel, NSWindowDelegate {
     static var open: StatsPanel? { shared?.isVisible == true ? shared : nil }
 
     private let stats = StatsView()
+    /// What the window shows. Tests look here.
+    var statsView: StatsView { stats }
     private var refresh: Timer?
 
     static func show(_ source: @escaping () -> Statistics) {
@@ -141,9 +143,11 @@ final class StatsView: NSView {
         guard choices != filterChoices || projectFilter.itemTitles != titles else { return }
         filterChoices = choices
         projectFilter.removeAllItems()
-        projectFilter.addItems(withTitles: titles)
-        for (index, id) in choices.enumerated() {
-            projectFilter.item(at: index + 1)?.image = HourglassView.swatch(color(of: id))
+        // One by one: adding titles in a batch quietly drops any that repeat, and two projects may share a name.
+        for (index, title) in titles.enumerated() {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            if index > 0 { item.image = HourglassView.swatch(color(of: choices[index - 1])) }
+            projectFilter.menu?.addItem(item)
         }
         if let filter, !choices.contains(filter) { self.filter = nil }
         projectFilter.selectItem(at: filter.flatMap { choices.firstIndex(of: $0) }.map { $0 + 1 } ?? 0)
@@ -166,18 +170,17 @@ final class StatsView: NSView {
 
     /// Saves the whole record as a CSV file, grouped the way the window is showing it — not just the spans on
     /// screen, but every one from the first day the sand ran.
-    @objc private func exportClicked() {
-        let statistics = source()
-        let log = filter.map { statistics.log.only(project: $0) } ?? statistics.log
-        let csv = log.csv(period, at: Date(), projects: statistics.projects)
+    @objc func exportClicked() {
+        let csv = exportedCSV()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.nameFieldStringValue = SandLog.exportFilename(at: Date())
         panel.title = "Export Statistics"
-        let save = { (response: NSApplication.ModalResponse) in
+        if let exportFolder { panel.directoryURL = exportFolder }
+        let save = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
             do {
-                try csv.write(to: url, atomically: true, encoding: .utf8)
+                try self?.write(csv, to: url)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't save the statistics"
@@ -187,6 +190,24 @@ final class StatsView: NSView {
         }
         if let window { panel.beginSheetModal(for: window, completionHandler: save) } else { save(panel.runModal()) }
     }
+
+    /// What Export saves: the whole record, grouped as the window shows it, and narrowed to the project it's showing.
+    func exportedCSV() -> String {
+        let statistics = source()
+        let log = filter.map { statistics.log.only(project: $0) } ?? statistics.log
+        return log.csv(period, at: Date(), projects: statistics.projects)
+    }
+
+    /// Writes an export where the save panel said to.
+    func write(_ csv: String, to url: URL) throws {
+        try csv.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// The Export button, for tests.
+    var exportButton: NSButton { export }
+    /// Where the save dialog opens, and so where a save goes unless the user moves elsewhere; nil for the usual place.
+    /// Tests point it at a folder of their own, since a dialog already on screen can't be steered from code.
+    var exportFolder: URL?
 
     /// Reads the record again and redraws: called when the window opens, once a second while it's open, and
     /// whenever the pointer moves over a different bar.

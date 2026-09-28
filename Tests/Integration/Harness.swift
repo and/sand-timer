@@ -7,6 +7,9 @@ final class TimerHarness {
 
     init(minutes: Int = 1, color: Int = 0, base: Int = 0, size: Int = 2, x: CGFloat? = nil) {
         sizeIndex = size
+        // Every timer starts with no project, so its sand is the colour it was made with — even if an earlier test
+        // was stopped before it could put back the project it switched to.
+        UserDefaults.standard.removeObject(forKey: ProjectList.activeKey)
         view = HourglassView(minutes: minutes, themeIndex: color, baseIndex: base, sizeIndex: size)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: view.frame.size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

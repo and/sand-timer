@@ -432,6 +432,97 @@ func timerViewTests() {
         }
     }
 
+    suite("Exporting") {
+        test("Export opens a save dialog, and what it saves is the record as the window shows it", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer { timer.view.updateProjects(before); timer.view.switchProject(to: active) }
+            timer.view.updateProjects(ProjectList(all: before.all + [Project(id: "x-a", name: "Export \"A\", test", color: "#2876E2")]))
+            timer.view.switchProject(to: "x-a")
+            timer.click(); timer.run(1.5)
+            timer.menu("pauseClicked"); timer.settle()
+            UserDefaults.standard.set(SandLog.Period.daily.rawValue, forKey: "statsPeriod")
+            timer.menu("statsClicked"); timer.run(0.4)
+            let window = try require(StatsPanel.open, "the statistics window")
+            defer { window.close() }
+            let stats = window.statsView
+            stats.show(project: nil)
+
+            // Every dialog opens on a folder of the test's own, so nothing lands in the user's Documents.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sand-timer-export-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder); stats.exportFolder = nil }
+            stats.exportFolder = folder
+
+            // The button is wired up, and pressing it brings up the save dialog on the window.
+            expect(stats.exportButton.isEnabled, "enabled: there is a record")
+            stats.exportButton.performClick(nil)
+            timer.run(0.5)
+            let sheet = try require(window.attachedSheet as? NSSavePanel, "a save dialog")
+            expect(sheet.nameFieldStringValue.hasPrefix("sand_timer_report_") && sheet.nameFieldStringValue.hasSuffix(".csv"),
+                   "named as a report: \(sheet.nameFieldStringValue)")
+            window.endSheet(sheet, returnCode: .cancel)
+            timer.run(0.3)
+            expect(window.attachedSheet == nil, "cancelled, it goes away")
+            expect((try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty == true, "and saves nothing")
+
+            // Confirmed, the dialog writes the export into the folder it opened on.
+            stats.exportButton.performClick(nil)
+            timer.run(0.5)
+            let saving = try require(window.attachedSheet as? NSSavePanel, "the save dialog again")
+            let target = try require(saving.url, "where it will save")
+            expect(target.deletingLastPathComponent().resolvingSymlinksInPath() == folder.resolvingSymlinksInPath(),
+                   "in the folder it was pointed at: \(target.path)")
+            window.endSheet(saving, returnCode: .OK)
+            timer.run(0.5)
+            let savedByDialog = try require(try? String(contentsOf: target, encoding: .utf8), "a file where the dialog saved")
+            expect(savedByDialog == stats.exportedCSV(), "holding the export")
+
+            // Everything: a header, a row per day, and a column for the project, its name quoted.
+            let everything = stats.exportedCSV()
+            let rows = everything.split(separator: "\n").map(String.init)
+            expect(rows.first?.hasPrefix("Start,End,Time run (seconds),Time run (minutes),Timers finished") == true, "got \(rows.first ?? "")")
+            expect(rows.first?.contains("\"Export \"\"A\"\", test (minutes)\"") == true, "the project's column: \(rows.first ?? "")")
+            expect(rows.last?.hasPrefix(SandLog.dayKey(Date()) + ",") == true, "today last: \(rows.last ?? "")")
+
+            // Written to disk, exactly as made.
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("sand-timer-export-test.csv")
+            defer { try? FileManager.default.removeItem(at: file) }
+            try stats.write(everything, to: file)
+            let saved = try String(contentsOf: file, encoding: .utf8)
+            expect(saved == everything, "the file holds the export")
+
+            // Narrowed to the project, the export holds only its time.
+            stats.show(project: "x-a")
+            let narrowed = stats.exportedCSV().split(separator: "\n").map(String.init)
+            let today = try require(narrowed.last, "today's row")
+            let seconds = Double(today.split(separator: ",")[2]) ?? -1
+            let projectSeconds = timer.view.statistics.log.days[SandLog.dayKey(Date())]?.byProject["x-a"]?.seconds ?? 0
+            expect(abs(seconds - projectSeconds.rounded()) < 1.01, "only the project's time: \(seconds) against \(projectSeconds)")
+            expect(!(narrowed.first?.contains("No project") ?? true), "and no other columns: \(narrowed.first ?? "")")
+            stats.show(project: nil)
+            timer.menu("endClicked"); timer.settle()
+        }
+    }
+
+    suite("Statistics with projects") {
+        test("two projects with the same name each get their own place in the filter", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer { timer.view.updateProjects(before); timer.view.switchProject(to: active) }
+            timer.view.updateProjects(ProjectList(all: [Project(id: "d-1", name: "Reading", color: "#2876E2"),
+                                                        Project(id: "d-2", name: "Reading", color: "#E8833A")]))
+            timer.menu("statsClicked"); timer.run(0.4)
+            let window = try require(StatsPanel.open, "the statistics window, open without a crash")
+            defer { window.close() }
+            let titles = window.statsView.projectFilter.itemTitles
+            expect(titles.filter { $0 == "Reading" }.count == 2, "both, not one: \(titles)")
+            window.statsView.show(project: "d-2")
+            expect(window.statsView.filter == "d-2", "and the second can be chosen")
+            window.statsView.show(project: nil)
+        }
+    }
+
     suite("Settings and the daily target") {
         test("the menu opens the settings, and no longer carries the switches that live there") {
             let titles = TimerHarness().view.makeMenu().items.map(\.title)
