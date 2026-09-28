@@ -77,10 +77,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            guard let self, let panel, statusItem == nil else { return }  // nothing to show while it's in the menu bar
-            panel.collectionBehavior = Self.everyDesktop
-            panel.orderFrontRegardless()
+            // The window is dropped a moment after the switch settles, so ask again once it has, not only at the start.
+            for delay in [0.0, 0.3, 1.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.bringBack() }
+            }
         }
+        // And whenever macOS reports the timer as no longer on screen while it ought to be, whichever desktop that is.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            guard let self, let panel, !panel.occlusionState.contains(.visible) else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.bringBack() }
+        }
+    }
+
+    /// Puts the timer back on screen if it has gone missing. Clearing the behaviour first makes macOS forget the
+    /// stale place it has for the window, so that setting it again registers the window afresh on this desktop.
+    private func bringBack() {
+        guard let panel, statusItem == nil, !panel.occlusionState.contains(.visible) else { return }  // nothing to show while it's in the menu bar
+        panel.collectionBehavior = []
+        panel.collectionBehavior = Self.everyDesktop
+        panel.orderFrontRegardless()
     }
 
     private func askAboutStartingAtLogin() {
