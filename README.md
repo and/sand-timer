@@ -178,4 +178,4 @@ optional, and the app will always be free.
 
 ---
 
-Building from source: see [BUILDING.md](BUILDING.md). Released under the [MIT License](LICENSE).
+What's changed in each version: [CHANGELOG.md](CHANGELOG.md). Building from source: see [BUILDING.md](BUILDING.md). Released under the [MIT License](LICENSE).

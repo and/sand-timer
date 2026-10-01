@@ -32,6 +32,13 @@ Point `NOTARY_PROFILE` at a different profile to use another one, or set it empt
 skip notarizing. It verifies what it produced rather than assuming: `stapler validate`
 on both artifacts, then `spctl --assess`, which is the check another Mac performs.
 
+## Releasing
+
+Each release adds an entry at the top of `CHANGELOG.md`, which keeps the whole history in one
+place. The notes on the GitHub release itself hold only that release's changes, a line pointing
+anyone coming from an older version to the changelog, and the download line with the disk
+image's SHA-256, which `./build.sh release` prints at the end.
+
 ## The MCP server
 
 `sand-timer-mcp` is a second program in the same bundle, built from the app's own
