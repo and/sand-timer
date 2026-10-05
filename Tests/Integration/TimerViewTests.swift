@@ -280,16 +280,18 @@ func timerViewTests() {
     }
 
     suite("Menu commands") {
-        test("the sound settings sit together in their own section, between separators") {
+        test("the sounds are one Sound menu: one thing while the sand runs, then the short sounds") {
             let items = TimerHarness(minutes: 25).view.makeMenu().items
-            let start = try require(items.firstIndex { $0.title == "Flip, Fall & Finish Sounds" }, "the first sound setting")
-            let end = try require(items[start...].firstIndex { $0.isSeparatorItem }, "the section ends")
-            expect(items[start - 1].isSeparatorItem, "a separator above it")
-            let section = items[start..<end].map(\.title)
-            expect(section == ["Flip, Fall & Finish Sounds", "Sand Sounds", "Minute Chimes"], "got \(section)")
-            let volumes = try require(items[start..<end].first { $0.title == "Sand Sounds" }?.submenu?.items, "sand volumes")
-            expect(volumes.map(\.title) == ["Off", "Quiet", "Normal", "Loud"], "got \(volumes.map(\.title))")
-            expect(volumes.filter { $0.state == .on }.count == 1, "exactly one is ticked")
+            let titles = items.map(\.title)
+            expect(titles.filter { ["Sound", "Sand Sounds", "Focus Sound", "Minute Chimes", "Flip, Fall & Finish Sounds"].contains($0) } == ["Sound"],
+                   "a single Sound item: \(titles)")
+            let index = try require(titles.firstIndex(of: "Sound"), "Sound")
+            expect(items[index - 1].isSeparatorItem && items[index + 1].isSeparatorItem, "in a section of its own")
+            let sound = try require(items[index].submenu?.items, "its menu")
+            expect(sound.map(\.title) == ["While the sand runs", "Silence", "Falling Sand", "White Noise — hiss", "Pink Noise — rain",
+                                          "Brown Noise — rumble", "", "Flip, Fall & Finish", "Minute Chimes", "", "Sound Settings…"],
+                   "got \(sound.map(\.title))")
+            expect(sound[1...5].filter { $0.state == .on }.count == 1, "exactly one background is ticked")
         }
         test("how the timer looks is gathered under Appearance, with the duration left to hand") {
             let items = TimerHarness(minutes: 25).view.makeMenu().items
@@ -303,18 +305,26 @@ func timerViewTests() {
             let duration = try require(titles.firstIndex(of: "Duration"), "Duration")
             expect(hide < duration, "hiding it is something to do with the timer, so it sits with Flip and Restart")
         }
-        test("picking a sand volume changes how loud the sand is, and it can be turned off", serial: true) {
+        test("Falling Sand is heard at the chosen volume, and anything else silences it", serial: true) {
             let timer = TimerHarness(minutes: 25)
-            let wasVolume = timer.view.grainVolume
-            defer { timer.menu("grainVolumePicked", tag: HourglassView.grainVolumes.firstIndex { $0.volume == wasVolume } ?? 2) }
-            timer.menu("grainVolumePicked", tag: 1)
+            let noise = FocusNoise.shared
+            let before = (noise.background, noise.volume)
+            defer { noise.choose(before.0); noise.setVolume(before.1); noise.silence() }
+            timer.menu("backgroundPicked", tag: 1)  // Falling Sand
+            noise.setVolume(0.25)
             let quiet = timer.view.grainVolume
-            timer.menu("grainVolumePicked", tag: 3)
-            expect(quiet > 0 && timer.view.grainVolume > quiet, "Loud is louder than Quiet: \(quiet) then \(timer.view.grainVolume)")
-            timer.menu("grainVolumePicked", tag: 0)
-            expect(timer.view.grainVolume == 0, "Off silences it")
+            noise.setVolume(0.9)
+            expect(quiet > 0 && timer.view.grainVolume > quiet, "louder with the volume up: \(quiet) then \(timer.view.grainVolume)")
+            noise.setVolume(0.5)
+            expect(timer.view.grainVolume == 1, "half way is the sand's usual level")
+            timer.menu("backgroundPicked", tag: 0)  // Silence
+            expect(timer.view.grainVolume == 0, "Silence silences it")
             timer.click(); timer.settle(); timer.run(0.5)
-            expect(Sounds.pourOnGlass?.isPlaying != true && Sounds.pourOnSand?.isPlaying != true, "no pouring sound while off")
+            expect(Sounds.pourOnGlass?.isPlaying != true && Sounds.pourOnSand?.isPlaying != true, "no pouring sound")
+            timer.menu("backgroundPicked", tag: 3)  // Pink Noise
+            expect(timer.view.grainVolume == 0, "and a noise in its place silences it too: one at a time")
+            noise.silence()
+            timer.menu("endClicked"); timer.settle()
         }
         test("with Minute Chimes on, a chime plays as each minute passes, and none when it's off") {
             let timer = TimerHarness(minutes: 25)
@@ -343,15 +353,17 @@ func timerViewTests() {
         }
         test("sand set to be heard is heard while the timer is hidden, because the menu says it is on", serial: true) {
             let timer = TimerHarness(minutes: 25)
-            let wasVolume = timer.view.grainVolume
-            defer { timer.menu("grainVolumePicked", tag: HourglassView.grainVolumes.firstIndex { $0.volume == wasVolume } ?? 0) }
-            timer.menu("grainVolumePicked", tag: 2)  // Normal
+            let noise = FocusNoise.shared
+            let before = (noise.background, noise.volume)
+            defer { noise.choose(before.0); noise.setVolume(before.1); noise.silence() }
+            timer.menu("backgroundPicked", tag: 1)  // Falling Sand
+            noise.setVolume(0.5)
             timer.click(); timer.settle(); timer.run(0.8)
             expect(Sounds.pourOnGlass?.isPlaying == true || Sounds.pourOnSand?.isPlaying == true, "pouring while on screen")
             timer.panel.orderOut(nil)  // away to the menu bar
             timer.run(0.8)
             expect(Sounds.pourOnGlass?.isPlaying == true || Sounds.pourOnSand?.isPlaying == true, "and still pouring, hidden")
-            timer.menu("grainVolumePicked", tag: 0)  // Off
+            timer.menu("backgroundPicked", tag: 0)  // Silence
             timer.run(0.5)
             expect(Sounds.pourOnGlass?.isPlaying != true && Sounds.pourOnSand?.isPlaying != true, "silenced only by the setting")
         }
@@ -361,9 +373,8 @@ func timerViewTests() {
             defer { if timer.view.minuteChimesOn != wasOn { timer.menu("minuteChimesToggled") } }
             timer.panel.orderOut(nil)  // tucked away in the menu bar, with no window to right-click
             let items = timer.view.soundMenuItems()
-            expect(items.map(\.title) == ["Flip, Fall & Finish Sounds", "Sand Sounds", "Minute Chimes"], "got \(items.map(\.title))")
-            expect(items[1].submenu?.items.map(\.title) == ["Off", "Quiet", "Normal", "Loud"])
-            let chimes = items[2]
+            expect(items.map(\.title) == ["Sound"], "got \(items.map(\.title))")
+            let chimes = try require(items[0].submenu?.items.first { $0.title == "Minute Chimes" }, "Minute Chimes")
             expect(chimes.state == (wasOn ? .on : .off), "shows how they are set")
             _ = chimes.target?.perform(chimes.action, with: chimes)  // as if picked from the menu bar
             expect(timer.view.minuteChimesOn != wasOn, "and picking one changes it")
@@ -520,6 +531,71 @@ func timerViewTests() {
             window.statsView.show(project: "d-2")
             expect(window.statsView.filter == "d-2", "and the second can be chosen")
             window.statsView.show(project: nil)
+        }
+    }
+
+    // The focus noise is one player for the whole program, and wants the sound device: on its own.
+    suite("Focus Sound") {
+        test("a noise plays while the sand runs, crossfades when changed, and fades away on a pause", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let noise = FocusNoise.shared
+            let chosen = noise.background
+            defer { noise.silence(); noise.choose(chosen); noise.silence() }
+            noise.choose(.silence)
+            let sound = try require(timer.view.makeMenu().items.first { $0.title == "Sound" }?.submenu, "the Sound menu")
+            expect(sound.items.first { $0.title == "Silence" }?.state == .on, "silent to begin with")
+
+            let pink = try require(sound.items.first { $0.title == "Pink Noise — rain" }, "Pink")
+            timer.menu("backgroundPicked", tag: pink.tag)
+            expect(noise.kind == .pink && UserDefaults.standard.string(forKey: FocusNoise.backgroundKey) == "pink", "chosen and remembered")
+            expect(noise.isPlaying, "a short taste while the sand is still")
+            timer.run(3.4)
+            expect(!noise.isPlaying, "and then quiet until the sand runs")
+
+            timer.click(); timer.run(1.0)
+            expect(noise.isPlaying && noise.playingKind == .pink, "playing while the sand runs")
+            timer.menu("backgroundPicked", tag: 4)  // Brown
+            timer.run(1.0)
+            expect(noise.playingKind == .brown, "switched to brown")
+            timer.menu("pauseClicked"); timer.settle()
+            timer.run(0.8)
+            expect(!noise.isPlaying, "faded away on the pause")
+            timer.menu("resumeClicked"); timer.settle()
+            expect(noise.isPlaying, "and back on resuming")
+            timer.menu("backgroundPicked", tag: 0)  // Silence
+            timer.run(0.8)
+            expect(!noise.isPlaying && noise.kind == nil, "Silence is silent")
+            timer.menu("endClicked"); timer.settle()
+        }
+        test("Settings holds the sound, its volume and softness, and the short sounds", serial: true) {
+            let timer = TimerHarness()
+            let noise = FocusNoise.shared
+            let before = (noise.background, noise.volume, noise.softness)
+            let chimesBefore = timer.view.minuteChimesOn
+            defer {
+                noise.choose(before.0); noise.setVolume(before.1); noise.setSoftness(before.2); noise.silence()
+                if timer.view.minuteChimesOn != chimesBefore { timer.view.minuteChimesToggled() }
+            }
+            noise.choose(.white); noise.silence()
+            SettingsPanel.show(for: timer.view)
+            defer { SettingsPanel.open?.close() }
+            let settings = try require(SettingsPanel.open?.settings, "the window")
+            expect(settings.noisePicker.itemTitles == Background.allCases.map(\.title), "every choice: \(settings.noisePicker.itemTitles)")
+            expect(settings.noisePicker.titleOfSelectedItem == "White Noise — hiss")
+            settings.noiseVolume.doubleValue = 0.6
+            settings.noiseVolumeChanged()
+            settings.noiseSoftness.doubleValue = 1
+            settings.noiseSoftnessChanged()
+            expect(abs(noise.volume - 0.6) < 0.001 && noise.softness == 1, "taken")
+            expect(UserDefaults.standard.double(forKey: FocusNoise.volumeKey) == 0.6 && UserDefaults.standard.double(forKey: FocusNoise.softnessKey) == 1, "and remembered")
+            settings.noisePicker.selectItem(at: 1)  // Falling Sand
+            settings.noisePicked()
+            expect(noise.background == .sand && settings.noiseVolume.isEnabled && !settings.noiseSoftness.isEnabled, "the sand has a volume, but no softness")
+            settings.noisePicker.selectItem(at: 0)
+            settings.noisePicked()
+            expect(noise.background == .silence && !settings.noiseVolume.isEnabled, "Silence greys the volume")
+            settings.chimesCheck.performClick(nil)
+            expect(timer.view.minuteChimesOn != chimesBefore, "Minute Chimes is switched here too")
         }
     }
 

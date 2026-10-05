@@ -101,8 +101,12 @@ the menu bar and the time left shows up there instead, where you can pause, resu
 restart it and change the sounds. It carries on as it was, sounds and all: what you hear
 follows the menu, not whether the timer is on screen.
 
-The sound of the falling sand is off to begin with; turn it up under **Sand Sounds** in
-the menu whenever you want to hear it.
+**Sound** in the menu picks one thing to hear while the sand runs: **Silence** (where it
+starts), **Falling Sand**, or a steady noise to work to — **White** (a hiss), **Pink** (like
+rain) or **Brown** (a low rumble). It fades in as the sand starts and out on a pause, an end
+or the sand running out. The same menu switches the short sounds on and off — the flip, a
+fall and the finish, and an optional chime each minute — and Settings has the volume, and a
+softness that muffles the noises' highs.
 
 ## What it does
 

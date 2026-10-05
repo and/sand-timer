@@ -39,18 +39,9 @@ final class HourglassView: NSView {
     private var themeIndex: Int
     private var base: Theme.Base
     private var sizeIndex: Int
-    private var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
-    /// How loud the falling and shaken sand is: 0 is off, 1 the usual level.
-    private(set) var grainVolume = HourglassView.startingGrainVolume()
-
-    /// The sand starts silent: a timer on the desk shouldn't whisper at you until you ask it to, and Sand Sounds in
-    /// the menu is there to turn it up. A volume already chosen is kept, as is an older on/off setting.
-    static func startingGrainVolume(_ defaults: UserDefaults = .standard) -> Double {
-        if let chosen = defaults.object(forKey: "grainVolume") as? Double { return chosen }
-        return defaults.object(forKey: "grainSoundOn") as? Bool == true ? 1 : 0
-    }
-    /// The volumes offered in the menu, quietest first.
-    static let grainVolumes: [(name: String, volume: Double)] = [("Off", 0), ("Quiet", 0.45), ("Normal", 1), ("Loud", 1.8)]
+    private(set) var soundOn = UserDefaults.standard.object(forKey: "soundOn") as? Bool ?? true
+    /// How loud the falling sand is: 0 unless it's the sound chosen for while the sand runs, 1 its usual level.
+    var grainVolume: Double { FocusNoise.shared.sandLoudness }
     private(set) var minuteChimesOn = UserDefaults.standard.bool(forKey: "minuteChimes")
     /// The project that was on when the app last closed, if it still exists and hasn't been removed.
     static func startingProject(_ defaults: UserDefaults = .standard) -> String? {
@@ -200,6 +191,7 @@ final class HourglassView: NSView {
         timer = nil
         Sounds.setPour(active: false, glassiness: 0)
         Sounds.shake?.stop()
+        FocusNoise.shared.silence()
     }
 
     func setPreview(progress: Double, running: Bool) {
@@ -216,6 +208,8 @@ final class HourglassView: NSView {
         lastTick = media
 
         let running = clock.isRunning(at: now)
+        // The focus noise plays while the sand runs, and fades away on a pause, an end or the sand running out.
+        FocusNoise.shared.setSessionRunning(running)
         let finished = wasRunning && !running && clock.progress(at: now) >= 1
         if soundOn && finished {
             NSSound(named: "Glass")?.play()
@@ -343,11 +337,11 @@ final class HourglassView: NSView {
         // The top keeps draining, which gradually wears away the shape it slumped into.
         if stream != nil { topSlump = topSlump.map { $0 * exp(-dt / 12) } }
         let visible = window?.isVisible == true
-        // Sand is heard whenever it runs, hidden in the menu bar or not: the menu says what Sand Sounds is set to,
+        // Sand is heard whenever it runs, hidden in the menu bar or not: the Sound menu says what plays,
         // and putting the timer away shouldn't quietly contradict it. A hidden timer can't be shaken anyway.
         // Shaken sand rattles, louder the more it's stirred up; it fades with the sand as each jolt settles.
         if let rattle = Sounds.shake {
-            let level = min(0.5, agitation.level * 0.55) * grainVolume  // a light rattle, not a shaker
+            let level = min(0.5, agitation.level * 0.55) * (soundOn ? 1 : 0)  // a light rattle, not a shaker; an effect, like a fall
             if level > 0.01 {
                 rattle.volume = Float(min(1, level))
                 if !rattle.isPlaying { rattle.play() }
@@ -908,13 +902,38 @@ final class HourglassView: NSView {
 
     /// The sound settings, which the menu bar's menu offers too: hidden away there the sand itself falls silently,
     /// but the chimes still play, so there has to be a way to change them without the timer on screen.
-    func soundMenuItems() -> [NSMenuItem] {
-        let sound = item("Flip, Fall & Finish Sounds", #selector(soundToggled))
-        sound.state = soundOn ? .on : .off
-        let grains = Self.grainVolumes.enumerated().map { ($1.name, $0, $1.volume == grainVolume) }
+    func soundMenuItems() -> [NSMenuItem] { [soundMenuItem()] }
+
+    /// Sound: one choice of what plays while the sand runs — silence, the falling sand, or a noise to work to — then
+    /// the short sounds of things happening, each on or off, and the volume in Settings.
+    func soundMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "Sound", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let heading = NSMenuItem(title: "While the sand runs", action: nil, keyEquivalent: "")
+        heading.isEnabled = false
+        menu.addItem(heading)
+        for (index, background) in Background.allCases.enumerated() {
+            let entry = item(background.title, #selector(backgroundPicked), tag: index)
+            entry.state = FocusNoise.shared.background == background ? .on : .off
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        let effects = item("Flip, Fall & Finish", #selector(soundToggled))
+        effects.state = soundOn ? .on : .off
+        menu.addItem(effects)
         let chimes = item("Minute Chimes", #selector(minuteChimesToggled))
         chimes.state = minuteChimesOn ? .on : .off
-        return [sound, submenu("Sand Sounds", grains, #selector(grainVolumePicked)), chimes]
+        menu.addItem(chimes)
+        menu.addItem(.separator())
+        menu.addItem(item("Sound Settings…", #selector(settingsClicked)))
+        parent.submenu = menu
+        return parent
+    }
+
+    @objc func backgroundPicked(_ sender: NSMenuItem) {
+        guard let background = Background.allCases[safe: sender.tag] else { return }
+        FocusNoise.shared.choose(background)
     }
 
     private func item(_ title: String, _ action: Selector, tag: Int = 0) -> NSMenuItem {
@@ -1418,20 +1437,14 @@ final class HourglassView: NSView {
         if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
 
-    @objc private func soundToggled() {
+    @objc func soundToggled() {
         soundOn.toggle()
         UserDefaults.standard.set(soundOn, forKey: "soundOn")
     }
 
-    @objc private func minuteChimesToggled() {
+    @objc func minuteChimesToggled() {
         minuteChimesOn.toggle()
         UserDefaults.standard.set(minuteChimesOn, forKey: "minuteChimes")
-    }
-
-    @objc private func grainVolumePicked(_ sender: NSMenuItem) {
-        guard Self.grainVolumes.indices.contains(sender.tag) else { return }
-        grainVolume = Self.grainVolumes[sender.tag].volume
-        UserDefaults.standard.set(grainVolume, forKey: "grainVolume")
     }
 
     @objc private func durationPicked(_ sender: NSMenuItem) { setDuration(minutes: sender.tag) }
@@ -1555,4 +1568,8 @@ final class HourglassView: NSView {
         let frame = expansion.map { window.frame.insetBy(dx: $0.dx, dy: $0.dy) } ?? window.frame
         UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: "origin")
     }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

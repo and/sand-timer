@@ -3,18 +3,28 @@ import Accelerate
 
 /// Sounds are made in code, so their character can be checked by measuring the samples.
 func soundTests() {
-    suite("Sand sounds to begin with") {
-        test("the sand starts silent, unless a volume or an older setting says otherwise") {
+    suite("Sound to begin with") {
+        test("a fresh install is silent, and the old sand volume or noise carries over into the one choice") {
             let defaults = try require(UserDefaults(suiteName: "sand-timer-tests"), "a scratch settings domain")
-            for key in ["grainVolume", "grainSoundOn"] { defaults.removeObject(forKey: key) }
-            expect(HourglassView.startingGrainVolume(defaults) == 0, "a fresh install hears no falling sand")
+            let keys = ["grainVolume", "grainSoundOn", "focusNoise", "focusNoiseVolume", FocusNoise.backgroundKey, FocusNoise.volumeKey]
+            func clear() { keys.forEach { defaults.removeObject(forKey: $0) } }
+            clear()
+            defer { clear() }
+            expect(FocusNoise.startingBackground(defaults) == .silence, "a fresh install hears nothing while the sand runs")
+            expect(FocusNoise.startingVolume(defaults) == FocusNoise.defaultVolume)
             defaults.set(true, forKey: "grainSoundOn")
-            expect(HourglassView.startingGrainVolume(defaults) == 1, "someone who had the old sand sounds on keeps them")
-            defaults.set(false, forKey: "grainSoundOn")
-            expect(HourglassView.startingGrainVolume(defaults) == 0)
+            expect(FocusNoise.startingBackground(defaults) == .sand && FocusNoise.startingVolume(defaults) == 0.5,
+                   "the oldest sand switch, on, becomes Falling Sand at its usual level")
             defaults.set(1.8, forKey: "grainVolume")
-            expect(HourglassView.startingGrainVolume(defaults) == 1.8, "a volume already chosen wins")
-            for key in ["grainVolume", "grainSoundOn"] { defaults.removeObject(forKey: key) }
+            expect(FocusNoise.startingVolume(defaults) == 0.9, "Loud stays loud: \(FocusNoise.startingVolume(defaults))")
+            defaults.set(0.0, forKey: "grainVolume")
+            expect(FocusNoise.startingBackground(defaults) == .silence, "sand that was off stays silent")
+            defaults.set("brown", forKey: "focusNoise")
+            expect(FocusNoise.startingBackground(defaults) == .brown, "a noise already chosen carries over")
+            defaults.set(0.45, forKey: "grainVolume")
+            expect(FocusNoise.startingVolume(defaults) == FocusNoise.defaultVolume, "at the noise's own volume, not the sand's")
+            defaults.set("sand", forKey: FocusNoise.backgroundKey)
+            expect(FocusNoise.startingBackground(defaults) == .sand, "and once there's a choice, it wins")
         }
     }
 
@@ -50,8 +60,6 @@ func soundTests() {
             expect(max(loud.glass, loud.sand) <= 1, "never asks for more than full volume")
             let off = Sounds.pourVolumes(glassiness: 0.5, volume: 0)
             expect(off.glass == 0 && off.sand == 0, "off is silent")
-            expect(HourglassView.grainVolumes.map(\.volume) == HourglassView.grainVolumes.map(\.volume).sorted(), "the menu lists them quietest first")
-            expect(HourglassView.grainVolumes.first?.volume == 0 && HourglassView.grainVolumes.contains { $0.volume == 1 }, "Off and the usual level are both offered")
         }
         test("the minute chime is gentle: quieter than a fall, and fades out to silence") {
             expect(rms(chime) < rms(fall), "chime \(rms(chime)) vs fall \(rms(fall))")

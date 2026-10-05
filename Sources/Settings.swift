@@ -71,6 +71,14 @@ final class SettingsView: NSView {
     private(set) var switches: [String: NSButton] = [:]
 
     private static let units = ["minutes", "hours"]
+    /// Sound: what plays while the sand runs, how loud, how soft; and the short sounds, each on or off.
+    let noisePicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    let effectsCheck = NSButton(checkboxWithTitle: "Flip, Fall & Finish", target: nil, action: nil)
+    let chimesCheck = NSButton(checkboxWithTitle: "Minute Chimes", target: nil, action: nil)
+    let noiseVolume = NSSlider(value: FocusNoise.defaultVolume, minValue: 0, maxValue: 1, target: nil, action: nil)
+    let noiseSoftness = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
+    private let noiseVolumeLabel = NSTextField(labelWithString: "")
+    private let noiseSoftnessLabel = NSTextField(labelWithString: "")
     /// The line under One Thing at a Time saying what it does.
     private var oneThingNote: NSTextField?
 
@@ -143,6 +151,41 @@ final class SettingsView: NSView {
         addProjectButton.bezelStyle = .rounded
         addProjectButton.controlSize = .small
 
+        // Sound: one thing playing while the sand runs, and the short sounds of things happening.
+        let noiseTitle = NSTextField(labelWithString: "Sound")
+        noiseTitle.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let noiseHint = Self.note("What plays while the sand runs.")
+        noisePicker.addItems(withTitles: Background.allCases.map(\.title))
+        effectsCheck.target = self
+        effectsCheck.action = #selector(effectsToggled)
+        chimesCheck.target = self
+        chimesCheck.action = #selector(chimesToggled)
+        let effectsRow = NSStackView(views: [effectsCheck, chimesCheck])
+        effectsRow.spacing = 18
+        noisePicker.target = self
+        noisePicker.action = #selector(noisePicked)
+        for (slider, action) in [(noiseVolume, #selector(noiseVolumeChanged)), (noiseSoftness, #selector(noiseSoftnessChanged))] {
+            slider.target = self
+            slider.action = action
+            slider.isContinuous = true
+            slider.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        }
+        for label in [noiseVolumeLabel, noiseSoftnessLabel] {
+            label.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            label.textColor = .secondaryLabelColor
+            label.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        }
+        func row(_ name: String, _ slider: NSSlider, _ label: NSTextField) -> NSStackView {
+            let title = NSTextField(labelWithString: name)
+            title.widthAnchor.constraint(equalToConstant: 70).isActive = true
+            let line = NSStackView(views: [title, slider, label])
+            line.spacing = 8
+            return line
+        }
+        let noiseVolumeRow = row("Volume", noiseVolume, noiseVolumeLabel)
+        let noiseSoftnessRow = row("Softness", noiseSoftness, noiseSoftnessLabel)
+        let noiseDivider = NSBox.separator()
+
         let divider = NSBox.separator()
         let projectsDivider = NSBox.separator()
         var rows: [NSView] = [targetRow, targetHint, projectsDivider, projectsTitle, projectsHint, projectScroll, addProjectButton, divider]
@@ -168,6 +211,9 @@ final class SettingsView: NSView {
         saveButton.action = #selector(saveClicked)
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"  // the default button: Return saves
+        if let at = rows.firstIndex(of: divider) {
+            rows.insert(contentsOf: [noiseDivider, noiseTitle, noiseHint, noisePicker, noiseVolumeRow, noiseSoftnessRow, effectsRow], at: at)
+        }
         let saveRow = NSStackView(views: [NSView(), saveButton])
         saveRow.distribution = .fill
         rows.append(saveRow)
@@ -178,6 +224,7 @@ final class SettingsView: NSView {
         stack.spacing = 12
         stack.setCustomSpacing(6, after: targetRow)
         stack.setCustomSpacing(4, after: projectsTitle)
+        stack.setCustomSpacing(4, after: noiseTitle)
         stack.setCustomSpacing(8, after: projectsHint)
         stack.setCustomSpacing(8, after: projectScroll)
         if let box = switches[Switch.oneThing.title] { stack.setCustomSpacing(4, after: box) }
@@ -193,6 +240,7 @@ final class SettingsView: NSView {
             targetHint.widthAnchor.constraint(equalToConstant: 400 - 44),
             divider.widthAnchor.constraint(equalToConstant: 400 - 44),
             projectsDivider.widthAnchor.constraint(equalToConstant: 400 - 44),
+            noiseDivider.widthAnchor.constraint(equalToConstant: 400 - 44),
             projectsHint.widthAnchor.constraint(equalToConstant: 400 - 44),
             projectScroll.widthAnchor.constraint(equalToConstant: 400 - 44),
             saveRow.widthAnchor.constraint(equalToConstant: 400 - 44),
@@ -231,6 +279,48 @@ final class SettingsView: NSView {
         switches[Switch.updates.title]?.state = UpdateChecker.shared.isEnabled ? .on : .off
         switches[Switch.oneThing.title]?.state = owner.oneThingAtATime ? .on : .off
         reloadProjects()
+        reloadNoise()
+    }
+
+    // MARK: Focus Sound
+
+    private func reloadNoise() {
+        let noise = FocusNoise.shared
+        noisePicker.selectItem(at: Background.allCases.firstIndex(of: noise.background) ?? 0)
+        noiseVolume.doubleValue = noise.volume
+        noiseSoftness.doubleValue = noise.softness
+        noiseVolumeLabel.stringValue = "\(Int((noise.volume * 100).rounded()))%"
+        noiseSoftnessLabel.stringValue = noise.softness < 0.005 ? "Off" : "\(Int((noise.softness * 100).rounded()))%"
+        noiseVolume.isEnabled = noise.background != .silence
+        noiseSoftness.isEnabled = noise.kind != nil  // softness is for the noises; the sand sounds as sand does
+        effectsCheck.state = owner?.soundOn == true ? .on : .off
+        chimesCheck.state = owner?.minuteChimesOn == true ? .on : .off
+    }
+
+    @objc func noisePicked() {
+        guard let background = Background.allCases[safe: noisePicker.indexOfSelectedItem] else { return }
+        FocusNoise.shared.choose(background)
+        reloadNoise()
+    }
+
+    @objc func effectsToggled() {
+        owner?.soundToggled()
+        reloadNoise()
+    }
+
+    @objc func chimesToggled() {
+        owner?.minuteChimesToggled()
+        reloadNoise()
+    }
+
+    @objc func noiseVolumeChanged() {
+        FocusNoise.shared.setVolume(noiseVolume.doubleValue)
+        reloadNoise()
+    }
+
+    @objc func noiseSoftnessChanged() {
+        FocusNoise.shared.setSoftness(noiseSoftness.doubleValue)
+        reloadNoise()
     }
 
     // MARK: Projects

@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
+  APP_SOURCES=(Sources/FocusNoise.swift Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
