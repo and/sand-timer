@@ -3,7 +3,7 @@
 Every release of Sand Timer, newest first. Each one can be downloaded from its
 [release page](https://github.com/and/sand-timer/releases).
 
-## Unreleased
+## 1.10.0 — 2026-10-05
 - **A welcome for new installs.** The first launch shows how the timer is worked and offers a few optional choices — projects to begin with, what to hear while the sand runs, and Start at Login — then starts the first timer. **Getting Started…** in the right-click menu brings it back. Updating from an earlier version doesn't show it.
 - **The noises are named in brackets**: White Noise (hiss), Pink Noise (rain), Brown Noise (rumble).
 
