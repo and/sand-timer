@@ -288,8 +288,8 @@ func timerViewTests() {
             let index = try require(titles.firstIndex(of: "Sound"), "Sound")
             expect(items[index - 1].isSeparatorItem && items[index + 1].isSeparatorItem, "in a section of its own")
             let sound = try require(items[index].submenu?.items, "its menu")
-            expect(sound.map(\.title) == ["While the sand runs", "Silence", "Falling Sand", "White Noise — hiss", "Pink Noise — rain",
-                                          "Brown Noise — rumble", "", "Flip, Fall & Finish", "Minute Chimes", "", "Sound Settings…"],
+            expect(sound.map(\.title) == ["While the sand runs", "Silence", "Falling Sand", "White Noise (hiss)", "Pink Noise (rain)",
+                                          "Brown Noise (rumble)", "", "Flip, Fall & Finish", "Minute Chimes", "", "Sound Settings…"],
                    "got \(sound.map(\.title))")
             expect(sound[1...5].filter { $0.state == .on }.count == 1, "exactly one background is ticked")
         }
@@ -545,7 +545,7 @@ func timerViewTests() {
             let sound = try require(timer.view.makeMenu().items.first { $0.title == "Sound" }?.submenu, "the Sound menu")
             expect(sound.items.first { $0.title == "Silence" }?.state == .on, "silent to begin with")
 
-            let pink = try require(sound.items.first { $0.title == "Pink Noise — rain" }, "Pink")
+            let pink = try require(sound.items.first { $0.title == "Pink Noise (rain)" }, "Pink")
             timer.menu("backgroundPicked", tag: pink.tag)
             expect(noise.kind == .pink && UserDefaults.standard.string(forKey: FocusNoise.backgroundKey) == "pink", "chosen and remembered")
             expect(noise.isPlaying, "a short taste while the sand is still")
@@ -581,7 +581,7 @@ func timerViewTests() {
             defer { SettingsPanel.open?.close() }
             let settings = try require(SettingsPanel.open?.settings, "the window")
             expect(settings.noisePicker.itemTitles == Background.allCases.map(\.title), "every choice: \(settings.noisePicker.itemTitles)")
-            expect(settings.noisePicker.titleOfSelectedItem == "White Noise — hiss")
+            expect(settings.noisePicker.titleOfSelectedItem == "White Noise (hiss)")
             settings.noiseVolume.doubleValue = 0.6
             settings.noiseVolumeChanged()
             settings.noiseSoftness.doubleValue = 1
@@ -596,6 +596,87 @@ func timerViewTests() {
             expect(noise.background == .silence && !settings.noiseVolume.isEnabled, "Silence greys the volume")
             settings.chimesCheck.performClick(nil)
             expect(timer.view.minuteChimesOn != chimesBefore, "Minute Chimes is switched here too")
+        }
+    }
+
+    // The welcome makes projects and starts the timer: things kept per Mac, so on its own.
+    suite("Welcome") {
+        test("Start makes the projects named, puts the first one on, and starts the first timer", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            let sound = FocusNoise.shared.background
+            defer {
+                timer.view.updateProjects(before); timer.view.switchProject(to: active, force: true)
+                FocusNoise.shared.choose(sound); FocusNoise.shared.silence()
+                UserDefaults.standard.removeObject(forKey: WelcomePanel.seenKey)
+            }
+            timer.view.switchProject(to: nil)
+            expect(timer.view.makeMenu().items.contains { $0.title == "Getting Started…" }, "the menu brings it back")
+            timer.menu("welcomeClicked"); timer.run(0.3)
+            let welcome = try require(WelcomePanel.open?.welcome, "the welcome")
+            expect(welcome.loginCheck.state == (timer.view.startsAtLogin ? .on : .off), "Start at Login shown as it is")
+            welcome.projectFields[0].stringValue = "Thesis"
+            welcome.projectFields[2].stringValue = "  Reading  "
+            welcome.soundPicker.selectItem(at: Background.allCases.firstIndex(of: .brown)!)
+            welcome.soundPicked()
+            expect(FocusNoise.shared.background == .brown, "the sound is taken as it's picked")
+            welcome.startButton.performClick(nil)
+            timer.settle()
+            let made = timer.view.projects.visible.suffix(2)
+            expect(made.map(\.name) == ["Thesis", "Reading"], "the names given, trimmed, blanks skipped: \(made.map(\.name))")
+            expect(Set(made.map(\.color)).count == 2, "each in a colour of its own")
+            expect(timer.view.activeProjectID == made.first?.id, "the first one on")
+            expect(timer.isRunning, "and the first timer running")
+            expect(WelcomePanel.open == nil && UserDefaults.standard.bool(forKey: WelcomePanel.seenKey), "seen, and gone")
+            timer.menu("endClicked"); timer.settle()
+        }
+        test("with projects already made, it lists them, and only adds new ones", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects, active = timer.view.activeProjectID
+            defer {
+                timer.view.updateProjects(before); timer.view.switchProject(to: active, force: true)
+                UserDefaults.standard.removeObject(forKey: WelcomePanel.seenKey)
+            }
+            timer.view.updateProjects(ProjectList(all: [Project(id: "w-a", name: "DSA", color: "#6C2ED6"),
+                                                        Project(id: "w-b", name: "AI", color: "#00C7FC"),
+                                                        Project(id: "w-c", name: "Gone", color: "#000000", archived: true)]))
+            timer.view.switchProject(to: "w-b")
+            WelcomePanel.show(for: timer.view); timer.run(0.2)
+            let welcome = try require(WelcomePanel.open?.welcome, "the welcome")
+            expect(!welcome.existingProjects.isHidden, "the projects are listed")
+            let listed = welcome.existingProjects.stringValue
+            expect(listed.contains("DSA") && listed.contains("AI") && !listed.contains("Gone"), "those in use: \(listed)")
+            expect(welcome.projectFields.allSatisfy { $0.stringValue.isEmpty && $0.placeholderString == "Another project" }, "the fields add more")
+            welcome.projectFields[1].stringValue = "Writing"
+            welcome.startButton.performClick(nil)
+            timer.settle()
+            expect(timer.view.projects.visible.map(\.name) == ["DSA", "AI", "Writing"], "one added: \(timer.view.projects.visible.map(\.name))")
+            expect(timer.view.activeProjectID == "w-b", "and the project that was on stays on")
+            timer.menu("endClicked"); timer.settle()
+
+            timer.view.updateProjects(ProjectList())
+            WelcomePanel.show(for: timer.view); timer.run(0.2)
+            expect(WelcomePanel.open?.welcome.existingProjects.isHidden == true, "with none, no list")
+            expect(WelcomePanel.open?.welcome.projectFields.first?.placeholderString == "e.g. Writing")
+            WelcomePanel.open?.close()
+        }
+        test("Skip, or closing it, leaves everything as it was", serial: true) {
+            let timer = TimerHarness(minutes: 5)
+            let before = timer.view.projects
+            defer { UserDefaults.standard.removeObject(forKey: WelcomePanel.seenKey) }
+            WelcomePanel.show(for: timer.view); timer.run(0.2)
+            let welcome = try require(WelcomePanel.open?.welcome, "the welcome")
+            welcome.projectFields[0].stringValue = "Not wanted"
+            welcome.skipButton.performClick(nil)
+            timer.run(0.2)
+            expect(timer.view.projects == before, "no projects made")
+            expect(!timer.isRunning, "no timer started")
+            expect(WelcomePanel.open == nil && UserDefaults.standard.bool(forKey: WelcomePanel.seenKey), "and it won't come back by itself")
+            UserDefaults.standard.removeObject(forKey: WelcomePanel.seenKey)
+            WelcomePanel.show(for: timer.view); timer.run(0.2)
+            WelcomePanel.open?.close()
+            expect(UserDefaults.standard.bool(forKey: WelcomePanel.seenKey), "closing it counts as seen too")
+            expect(WelcomePanel.open?.welcome.projectFields[0].stringValue ?? "" == "", "and it opens empty next time")
         }
     }
 

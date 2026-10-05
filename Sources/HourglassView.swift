@@ -880,6 +880,7 @@ final class HourglassView: NSView {
 
         menu.addItem(item("Statistics…", #selector(statsClicked)))
         menu.addItem(item("Settings…", #selector(settingsClicked)))
+        menu.addItem(item("Getting Started…", #selector(welcomeClicked)))
         menu.addItem(item("Support Sand Timer…", #selector(supportClicked)))
         menu.addItem(.separator())
 
@@ -1270,6 +1271,8 @@ final class HourglassView: NSView {
     var startsAtLogin: Bool { SMAppService.mainApp.status == .enabled }
 
     @objc func settingsClicked() { SettingsPanel.show(for: self) }
+
+    @objc func welcomeClicked() { WelcomePanel.show(for: self) }
 
     /// What the statistics window draws, read afresh each time it refreshes.
     var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand, projects: projects) }

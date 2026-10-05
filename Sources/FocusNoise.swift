@@ -7,7 +7,7 @@ enum NoiseKind: String, CaseIterable {
     case white, pink, brown
 
     /// What the menu calls it, with a word for how it sounds.
-    var title: String { ["White Noise — hiss", "Pink Noise — rain", "Brown Noise — rumble"][Self.allCases.firstIndex(of: self)!] }
+    var title: String { ["White Noise (hiss)", "Pink Noise (rain)", "Brown Noise (rumble)"][Self.allCases.firstIndex(of: self)!] }
     /// Loudness each is evened out to, so switching doesn't jump: white needs least, since the ear weights its highs.
     var targetRMS: Float { [0.10, 0.16, 0.22][Self.allCases.firstIndex(of: self)!] }
 }

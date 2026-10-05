@@ -39,9 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         view.publishState()  // so anything reading from outside knows what the timer is doing from the start
         UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
         keepItOnEveryDesktop()
-        // Start at Login is opt-in: ask once, on the first launch, once the timer is on screen.
-        if !defaults.bool(forKey: "loginItemConfigured") {
-            DispatchQueue.main.async { [weak self] in self?.askAboutStartingAtLogin() }
+        // A new install is welcomed once the timer is on screen: how it's worked, and a few choices, Start at Login
+        // among them. An install updated from an earlier version has seen all that already.
+        if WelcomePanel.shouldWelcome(defaults) {
+            DispatchQueue.main.async { WelcomePanel.show(for: view) }
+        } else {
+            defaults.set(true, forKey: WelcomePanel.seenKey)
         }
     }
 
@@ -102,26 +105,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.collectionBehavior = []
         panel.collectionBehavior = Self.everyDesktop
         panel.orderFrontRegardless()
-    }
-
-    private func askAboutStartingAtLogin() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: "loginItemConfigured") else { return }
-        defaults.set(true, forKey: "loginItemConfigured")  // asked once; the menu option handles any change of mind
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Start Sand Timer when you log in?"
-        alert.informativeText = "You can change this any time from Settings, in the timer's right-click menu."
-        alert.addButton(withTitle: "Start at Login")
-        alert.addButton(withTitle: "Not Now")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        do {
-            try SMAppService.mainApp.register()
-        } catch {
-            NSLog("Sand Timer: couldn't enable Start at Login: \(error)")
-        }
-        // macOS may ask the user to allow it in System Settings first.
-        if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
 
     /// Puts the timer away as an hourglass in the menu bar, with the time left beside it while it runs.

@@ -16,7 +16,10 @@ start, and watch the sand run.
 Works on macOS 13 Ventura or later, on both Apple Silicon and Intel Macs.
 
 The timer has no window of its own and no icon in the Dock — it simply appears on your
-desktop, sitting above whatever you are working in.
+desktop, sitting above whatever you are working in. The first time, a short welcome shows
+how it's worked and offers a few optional choices — what you're working on, what to hear
+while the sand runs, and whether it opens when you log in — then starts your first timer.
+**Getting Started…** in the right-click menu brings it back.
 
 <p align="center">
   <img src="docs/on-a-mac.png" width="720" alt="A Mac screen with a document open in Chrome and Sand Timer standing in the bottom-right corner, with 9:48 left on its base">

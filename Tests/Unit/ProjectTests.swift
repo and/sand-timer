@@ -52,6 +52,20 @@ func projectTests() {
         }
     }
 
+    suite("Welcome") {
+        test("a new install is welcomed, once; an install updated from an earlier version isn't") {
+            let defaults = try require(UserDefaults(suiteName: "sand-timer-welcome-tests"), "a scratch settings domain")
+            defer { defaults.removePersistentDomain(forName: "sand-timer-welcome-tests") }
+            defaults.removePersistentDomain(forName: "sand-timer-welcome-tests")
+            expect(WelcomePanel.shouldWelcome(defaults), "a new install")
+            defaults.set(true, forKey: "loginItemConfigured")
+            expect(!WelcomePanel.shouldWelcome(defaults), "an earlier version already asked its question")
+            defaults.removeObject(forKey: "loginItemConfigured")
+            defaults.set(true, forKey: WelcomePanel.seenKey)
+            expect(!WelcomePanel.shouldWelcome(defaults), "and once seen, never again by itself")
+        }
+    }
+
     suite("Shaking to switch") {
         func strokes(_ count: Int, speed: Double = 0.8, every: Double = 0.12) -> Int {
             var gesture = ShakeGesture(), fired = 0, t = 0.0

@@ -3,6 +3,10 @@
 Every release of Sand Timer, newest first. Each one can be downloaded from its
 [release page](https://github.com/and/sand-timer/releases).
 
+## Unreleased
+- **A welcome for new installs.** The first launch shows how the timer is worked and offers a few optional choices — projects to begin with, what to hear while the sand runs, and Start at Login — then starts the first timer. **Getting Started…** in the right-click menu brings it back. Updating from an earlier version doesn't show it.
+- **The noises are named in brackets**: White Noise (hiss), Pink Noise (rain), Brown Noise (rumble).
+
 ## 1.9.0 — 2026-10-05
 - **One Sound menu, and noise to work to.** Everything you hear is now under **Sound**: one choice of what plays while the sand runs — **Silence**, **Falling Sand**, or a steady noise to work to, **White** (a hiss), **Pink** (like rain) or **Brown** (a low rumble) — then the flip, fall and finish sounds and the minute chimes, each on or off. It fades in as the sand starts, out on a pause, an end or the sand running out, and crossfades when you change it. Settings has one volume for it, and a softness that muffles the noises' highs. The noise is made on your Mac as it plays, so there's nothing to download. If you had the falling sand turned up, it carries on as before.
 - **No more crash with two projects of the same name.** Statistics crashed when two projects shared a name, or when several removed projects were shown as "Unknown project". Each now gets its own place in the project menu.
