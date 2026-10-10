@@ -1,7 +1,8 @@
 # Sand Timer
 
 A sand timer that sits on your Mac's desktop, above your other windows. Click it to
-start, and watch the sand run.
+start, and watch the sand run. There's one for iPhone and Android too, and the phone can
+share one timer with the Mac.
 
 <p align="center">
   <img src="docs/sand-running.gif" width="260" alt="The Sand Timer running: sand falls in a stream from the top chamber, hollowing a crater as it drains and building a pile below, while the display in the base counts down">
@@ -79,7 +80,7 @@ hour by hour, day by day, week by week, month by month and year by year. Hover a
 read it off. Once you use projects, each bar is split by project in their colours, with a
 legend, a breakdown of the span you're looking at, and a menu to narrow the chart to one
 project. It counts only time the sand was actually running, and it never leaves your Mac —
-unless you ask it to: **Export…** saves the whole record as a CSV file, grouped the way
+unless you link a phone (see below) or ask it to: **Export…** saves the whole record as a CSV file, grouped the way
 you are looking at it, with a column for each project, for a spreadsheet or a timesheet.
 
 <p align="center">
@@ -88,10 +89,14 @@ you are looking at it, with a column for each project, for a spreadsheet or a ti
 
 ### Settings
 
-Besides the target and the projects, **Settings…** holds the switches: whether the timer
-starts when you log in, whether it stays where you drop it or falls to the bottom of the
-screen (**Float Anywhere**), whether Claude and Shortcuts may work it, and whether it
-checks for updates. Changes take effect straight away.
+**Settings…** has four tabs, and changes take effect straight away:
+
+- **General**: the daily target, whether the timer starts when you log in, whether it stays
+  where you drop it or falls to the bottom of the screen (**Float Anywhere**), whether Claude
+  and Shortcuts may work it, and whether it checks for updates.
+- **Projects**: the projects and **One Thing at a Time**.
+- **Sound**: what plays while the sand runs, how loud and how soft.
+- **Phone & Focus**: linking a phone, and Do Not Disturb while the sand runs.
 
 The app checks once a day whether a newer version has been released, and if there is one
 the menu offers it — it only ever opens the release page in your browser, and downloads
@@ -119,34 +124,47 @@ Work). With **Share Across Devices** on in Focus settings, your iPhone follows t
 
 ### On your phone
 
-There is a Sand Timer for iPhone (`ios/`) and for Android (`android/`). Each has the same
-glass as the Mac, drawn the same way: tap it to flip it, tap again to pause (it lies on its
-side). Each also has the lengths from the Mac's menu, projects, a daily target along the
-base, a chime when the time is up, and its own Statistics. The screen stays on while the sand
-runs (a switch in Settings). On Android, a notification counts down while the timer runs, with
-Pause and End, and **Do Not Disturb while the sand runs** turns on a Do Not Disturb mode called
-Sand Timer until the sand stops. Both have a clean view: while the sand runs and the phone lies
-still, everything but the glass fades away and the glass moves to the middle of the screen; moving or
-touching the phone brings the rest back.
-Neither app needs a Mac or an account.
+There is a Sand Timer for iPhone and for Android, with the same glass as the Mac, drawn the
+same way: tap it to flip it, tap again to pause (it lies on its side). Each has the lengths
+from the Mac's menu, projects, a daily target along the base, a chime when the time is up,
+and its own Statistics. Neither needs a Mac or an account.
 
-Linking to your Mac is optional, and off until you turn it on; until then neither app touches
-Bluetooth. To link, turn on **Link with a phone** in the Mac's **Settings…** and click **Link a
-Phone…**, then turn on **Link to a Mac** in the phone's Settings and scan the code. You can link
-an iPhone and an Android phone at the same time.
+- **The screen stays on** while the sand runs and the timer is showing.
+- **Clean view**: while the sand runs and the phone lies still, everything but the glass
+  fades away and the glass moves to the middle of the screen. Move or touch the phone to
+  bring the rest back.
+- **On Android**, a notification counts down with Pause and End, and **Do Not Disturb while
+  the sand runs** turns on a Do Not Disturb mode called Sand Timer until the sand stops.
 
-From then on, whenever the phone is near the Mac, the two talk over Bluetooth and share one
-timer: flip it on either and both glasses run, pause it on either and both lie down. Only the
-device that started a session counts its time, so nothing is counted twice. They also share one
-list of projects, and each counts the other's time in Statistics and toward the daily target.
-Apart, each carries on alone, and they catch up when they're near again. On Android, **Open when the Mac starts the timer**
-brings Sand Timer to the front as the Mac flips the glass, while the phone's screen is on (it asks
-once to be allowed to display over other apps). iOS doesn't let an app bring itself forward.
+Each can be turned off in the phone's Settings. The phone apps aren't in the App Store or
+the Play Store yet; [BUILDING.md](BUILDING.md) says how to build them from `ios/` and
+`android/`.
+
+### Linking a phone to your Mac
+
+Linking is optional, and off until you turn it on; until then neither the Mac nor the phone
+touches Bluetooth.
+
+1. On the Mac, open **Settings… › Phone & Focus**, turn on **Link with a phone**, and click
+   **Link a Phone…**. A QR code appears.
+2. On the phone, open **Settings**, turn on **Link to a Mac**, and scan the code.
+
+You can link an iPhone and an Android phone at the same time. From then on, whenever the
+phone is near the Mac, the two talk over Bluetooth and share one timer: flip it on either and
+both glasses run, pause it on either and both lie down. Only the device that started a
+session counts its time, so nothing is counted twice. They also share one list of projects,
+and each counts the other's time in Statistics and toward the daily target. Apart, each
+carries on alone, and they catch up when they're near again.
+
+On Android, **Open when the Mac starts the timer** brings Sand Timer forward as the Mac flips
+the glass, waking the phone and showing the glass over the lock screen the way an alarm does
+(it asks once to be allowed to display over other apps). iOS doesn't let an app bring itself
+forward.
 
 Everything goes straight between your devices, encrypted with a key that only the QR code
-carries; nothing goes through the internet. The code works as a password while it's on screen,
-so it closes itself after two minutes. **Unlink All** on the Mac forgets every phone, and each
-phone keeps its own record.
+carries; nothing goes through the internet. The code works as a password while it's on
+screen, so it closes itself after two minutes. **Unlink All** on the Mac forgets every phone,
+and each phone keeps its own record.
 
 ## What it does
 
@@ -157,6 +175,11 @@ finishes when it should.
 
 Pick it up and drop it, shake it, or knock it over, and the sand reacts the way you
 would expect. Flip it and the display in the base turns over with it.
+
+It's drawn to look like the real thing: grains of several tones with the odd glint, lit
+from above and shaded where they press on the glass; walls that darken through thicker
+glass, a window reflected in the bulbs, and a shadow on whatever it stands on. Pick any
+colour of sand, from purple to plain Sand.
 
 The sounds were made to match what you are seeing: sand landing on glass at first, then
 on sand as the pile grows, a rattle while you shake it, and a chime at the end.
@@ -222,4 +245,4 @@ optional, and the app will always be free.
 
 ---
 
-What's changed in each version: [CHANGELOG.md](CHANGELOG.md). Building from source: see [BUILDING.md](BUILDING.md). Released under the [MIT License](LICENSE).
+What's changed in each version: [CHANGELOG.md](CHANGELOG.md). What might come next: [WISHLIST.md](WISHLIST.md). Building from source: see [BUILDING.md](BUILDING.md). Released under the [MIT License](LICENSE).
