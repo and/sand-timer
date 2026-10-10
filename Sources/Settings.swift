@@ -9,11 +9,13 @@ final class SettingsPanel: NSPanel, NSWindowDelegate {
 
     let settings = SettingsView()
 
-    static func show(for view: HourglassView) {
+    /// Opens the window, on a given page if asked (0 General, 1 Projects, 2 Sound, 3 Phone & Focus).
+    static func show(for view: HourglassView, page: Int? = nil) {
         let panel = shared ?? SettingsPanel()
         shared = panel
         panel.settings.owner = view
         panel.settings.reload()
+        if let page { panel.settings.show(page: page) }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(nil)  // opens with nothing selected, so a stray key can't overwrite a project's name
@@ -32,6 +34,7 @@ final class SettingsPanel: NSPanel, NSWindowDelegate {
         delegate = self
         setFrameAutosaveName("settings")  // reopens where it was last left
         if frameAutosaveName.isEmpty || frame.origin == .zero { center() }
+        settings.show(page: settings.tabs.selectedSegment)  // the size of the page showing, not the size it was saved at
     }
 
     /// A number still being typed counts when the window is closed, not just when Return is pressed.
@@ -67,6 +70,12 @@ final class SettingsView: NSView {
     let targetField = NSTextField()
     let unitPicker = NSPopUpButton(frame: .zero, pullsDown: false)
     let saveButton = NSButton(title: "Save", target: nil, action: nil)
+    /// The tabs along the top, and the page each one shows.
+    let tabs = NSSegmentedControl()
+    private var pages: [NSStackView] = []
+    private static let tabTitles = ["General", "Projects", "Sound", "Phone & Focus"]
+    private static let tabKey = "settingsTab"
+    private static let width: CGFloat = 420
     /// The switches, by what they are called.
     private(set) var switches: [String: NSButton] = [:]
 
@@ -79,6 +88,14 @@ final class SettingsView: NSView {
     let noiseSoftness = NSSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let noiseVolumeLabel = NSTextField(labelWithString: "")
     private let noiseSoftnessLabel = NSTextField(labelWithString: "")
+    /// Linking a phone: what is linked, and the buttons to link one or unlink them all.
+    let focusSwitch = NSButton(checkboxWithTitle: "Do Not Disturb while the sand runs", target: nil, action: nil)
+    let focusStatus = NSTextField(wrappingLabelWithString: "")
+    let focusButton = NSButton(title: "Open Shortcuts", target: nil, action: nil)
+    let linkSwitch = NSButton(checkboxWithTitle: "Link with a phone", target: nil, action: nil)
+    let linkButton = NSButton(title: "Link a Phone…", target: nil, action: nil)
+    let unlinkButton = NSButton(title: "Unlink All", target: nil, action: nil)
+    let linkStatus = NSTextField(wrappingLabelWithString: "")
     /// The line under One Thing at a Time saying what it does.
     private var oneThingNote: NSTextField?
 
@@ -184,11 +201,44 @@ final class SettingsView: NSView {
         }
         let noiseVolumeRow = row("Volume", noiseVolume, noiseVolumeLabel)
         let noiseSoftnessRow = row("Softness", noiseSoftness, noiseSoftnessLabel)
-        let noiseDivider = NSBox.separator()
+
+        // Linking a phone: its projects and time shared with this Mac's.
+        let linkTitle = NSTextField(labelWithString: "Phone")
+        linkTitle.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let linkHint = Self.note("Optional: link Sand Timer on your iPhone or Android phone to share one timer, your projects "
+                                 + "and statistics. The two talk over Bluetooth, encrypted, whenever they're near each other.")
+        linkStatus.font = .systemFont(ofSize: 11)
+        linkStatus.textColor = .secondaryLabelColor
+        for (button, action) in [(linkButton, #selector(linkClicked)), (unlinkButton, #selector(unlinkClicked))] {
+            button.target = self
+            button.action = action
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+        }
+        linkSwitch.target = self
+        linkSwitch.action = #selector(linkToggled)
+        let linkRow = NSStackView(views: [linkButton, unlinkButton])
+        linkRow.spacing = 8
+
+        // Do Not Disturb, by way of two shortcuts: macOS has no switch for Focus that an app may use.
+        let focusTitle = NSTextField(labelWithString: "Focus")
+        focusTitle.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let focusHint = Self.note("Runs two shortcuts you make once in the Shortcuts app: “\(FocusShortcuts.onName)”, "
+                                  + "with Set Focus turning Do Not Disturb on, and “\(FocusShortcuts.offName)” turning it off. "
+                                  + "With Share Across Devices on in Focus settings, your iPhone follows.")
+        focusSwitch.target = self
+        focusSwitch.action = #selector(focusToggled)
+        focusStatus.font = .systemFont(ofSize: 11)
+        focusStatus.textColor = .secondaryLabelColor
+        focusButton.target = self
+        focusButton.action = #selector(openShortcuts)
+        focusButton.bezelStyle = .rounded
+        focusButton.controlSize = .small
+        let focusDivider = NSBox.separator()
 
         let divider = NSBox.separator()
-        let projectsDivider = NSBox.separator()
-        var rows: [NSView] = [targetRow, targetHint, projectsDivider, projectsTitle, projectsHint, projectScroll, addProjectButton, divider]
+        var general: [NSView] = [targetRow, targetHint, divider]
+        var projectsPage: [NSView] = [projectsTitle, projectsHint, projectScroll, addProjectButton]
         for entry in Switch.allCases {
             let box = NSButton(checkboxWithTitle: entry.title, target: self, action: #selector(switchToggled(_:)))
             box.tag = entry.rawValue
@@ -196,59 +246,105 @@ final class SettingsView: NSView {
             switches[entry.title] = box
             // One Thing at a Time is about projects, so it sits with them, its reason spelled out beneath it.
             if entry == .oneThing {
-                let at = rows.firstIndex(of: addProjectButton).map { $0 + 1 } ?? rows.count
                 let reason = Self.note(entry.hint)
-                reason.widthAnchor.constraint(equalToConstant: 400 - 44).isActive = true
-                rows.insert(contentsOf: [box, reason], at: at)
+                reason.widthAnchor.constraint(equalToConstant: Self.width - 44).isActive = true
+                projectsPage += [box, reason]
                 oneThingNote = reason
             } else {
-                rows.append(box)
+                general.append(box)
             }
         }
+        let sound: [NSView] = [noiseTitle, noiseHint, noisePicker, noiseVolumeRow, noiseSoftnessRow, effectsRow]
+        let phone: [NSView] = [linkTitle, linkHint, linkSwitch, linkStatus, linkRow, focusDivider,
+                               focusTitle, focusHint, focusSwitch, focusStatus, focusButton]
 
         // Everything already applies as it is changed; Save is for the number still being typed, and closes the window.
         saveButton.target = self
         saveButton.action = #selector(saveClicked)
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"  // the default button: Return saves
-        if let at = rows.firstIndex(of: divider) {
-            rows.insert(contentsOf: [noiseDivider, noiseTitle, noiseHint, noisePicker, noiseVolumeRow, noiseSoftnessRow, effectsRow], at: at)
-        }
         let saveRow = NSStackView(views: [NSView(), saveButton])
         saveRow.distribution = .fill
-        rows.append(saveRow)
 
-        let stack = NSStackView(views: rows)
+        // A page for each kind of setting, so the window stays short enough to see whole.
+        pages = [general, projectsPage, sound, phone].map { views in
+            let page = NSStackView(views: views)
+            page.orientation = .vertical
+            page.alignment = .leading
+            page.spacing = 12
+            return page
+        }
+        func space(_ points: CGFloat, after view: NSView) {
+            pages.first { $0.arrangedSubviews.contains(view) }?.setCustomSpacing(points, after: view)
+        }
+        space(6, after: targetRow)
+        space(4, after: projectsTitle)
+        space(8, after: projectsHint)
+        space(8, after: projectScroll)
+        space(4, after: noiseTitle)
+        space(4, after: linkTitle)
+        space(6, after: linkHint)
+        space(6, after: linkSwitch)
+        space(8, after: linkStatus)
+        space(4, after: focusTitle)
+        space(6, after: focusHint)
+        space(6, after: focusSwitch)
+        space(6, after: focusStatus)
+        if let box = switches[Switch.oneThing.title] { space(4, after: box) }
+
+        tabs.segmentCount = Self.tabTitles.count
+        for (i, title) in Self.tabTitles.enumerated() { tabs.setLabel(title, forSegment: i) }
+        tabs.trackingMode = .selectOne
+        tabs.target = self
+        tabs.action = #selector(tabPicked)
+        let tabsRow = NSStackView(views: [tabs])
+        tabsRow.alignment = .centerX
+
+        let stack = NSStackView(views: [tabsRow] + pages + [saveRow])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
-        stack.setCustomSpacing(6, after: targetRow)
-        stack.setCustomSpacing(4, after: projectsTitle)
-        stack.setCustomSpacing(4, after: noiseTitle)
-        stack.setCustomSpacing(8, after: projectsHint)
-        stack.setCustomSpacing(8, after: projectScroll)
-        if let box = switches[Switch.oneThing.title] { stack.setCustomSpacing(4, after: box) }
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 20, right: 22)
+        stack.spacing = 16
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 22, bottom: 20, right: 22)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        let inner = Self.width - 44
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(equalToConstant: 400),
-            targetHint.widthAnchor.constraint(equalToConstant: 400 - 44),
-            divider.widthAnchor.constraint(equalToConstant: 400 - 44),
-            projectsDivider.widthAnchor.constraint(equalToConstant: 400 - 44),
-            noiseDivider.widthAnchor.constraint(equalToConstant: 400 - 44),
-            projectsHint.widthAnchor.constraint(equalToConstant: 400 - 44),
-            projectScroll.widthAnchor.constraint(equalToConstant: 400 - 44),
-            saveRow.widthAnchor.constraint(equalToConstant: 400 - 44),
-        ])
+            widthAnchor.constraint(equalToConstant: Self.width),
+            tabsRow.widthAnchor.constraint(equalToConstant: inner),
+            targetHint.widthAnchor.constraint(equalToConstant: inner),
+            divider.widthAnchor.constraint(equalToConstant: inner),
+            focusDivider.widthAnchor.constraint(equalToConstant: inner),
+            linkHint.widthAnchor.constraint(equalToConstant: inner),
+            linkStatus.widthAnchor.constraint(equalToConstant: inner),
+            focusHint.widthAnchor.constraint(equalToConstant: inner),
+            focusStatus.widthAnchor.constraint(equalToConstant: inner),
+            projectsHint.widthAnchor.constraint(equalToConstant: inner),
+            projectScroll.widthAnchor.constraint(equalToConstant: inner),
+            saveRow.widthAnchor.constraint(equalToConstant: inner),
+        ] + pages.map { $0.widthAnchor.constraint(equalToConstant: inner) })
+        show(page: min(max(0, UserDefaults.standard.integer(forKey: Self.tabKey)), pages.count - 1))
         reload()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// Shows one page, the window fitting it with its top edge kept where it was.
+    func show(page index: Int) {
+        tabs.selectedSegment = index
+        for (i, page) in pages.enumerated() { page.isHidden = i != index }
+        UserDefaults.standard.set(index, forKey: Self.tabKey)
+        guard let window else { return }
+        layoutSubtreeIfNeeded()
+        let top = window.frame.maxY
+        window.setContentSize(fittingSize)
+        window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
+    }
+
+    @objc private func tabPicked() { show(page: tabs.selectedSegment) }
 
     private static func note(_ text: String) -> NSTextField {
         let label = NSTextField(wrappingLabelWithString: text)
@@ -280,6 +376,75 @@ final class SettingsView: NSView {
         switches[Switch.oneThing.title]?.state = owner.oneThingAtATime ? .on : .off
         reloadProjects()
         reloadNoise()
+        reloadLink()
+        reloadFocus()
+    }
+
+    // MARK: Focus
+
+    private func reloadFocus() {
+        let focus = FocusShortcuts.shared
+        focusSwitch.state = focus.isEnabled ? .on : .off
+        focusStatus.isHidden = !focus.isEnabled
+        guard focus.isEnabled else { return }
+        focus.missing { [weak self] missing in
+            self?.focusStatus.stringValue = missing.isEmpty
+                ? "Both shortcuts are ready."
+                : "Not found in Shortcuts yet: " + missing.map { "“\($0)”" }.joined(separator: " and ") + "."
+        }
+    }
+
+    @objc func focusToggled() {
+        FocusShortcuts.shared.setEnabled(focusSwitch.state == .on)
+        reload()
+    }
+
+    @objc func openShortcuts() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+    }
+
+    // MARK: Phone
+
+    private func reloadLink() {
+        let link = Link.engine
+        linkSwitch.state = link.isEnabled ? .on : .off
+        linkButton.isHidden = !link.isEnabled
+        unlinkButton.isHidden = !link.isLinked
+        linkStatus.isHidden = !link.isEnabled
+        guard link.isLinked else {
+            linkStatus.stringValue = "No phone linked."
+            return
+        }
+        let ago = RelativeDateTimeFormatter()
+        ago.unitsStyle = .full
+        let here = link.connected
+        var lines = link.devices.map { device in
+            here.contains(device.id) ? "\(device.name) · connected"
+                : "\(device.name) · last seen \(ago.localizedString(for: device.seen, relativeTo: Date()))"
+        }
+        if lines.isEmpty { lines = ["Waiting for a phone to scan the code."] }
+        if let problem = Link.radio.problem { lines.append(problem) }
+        linkStatus.stringValue = lines.joined(separator: "\n")
+    }
+
+    @objc func linkClicked() { LinkPanel.show() }
+
+    /// On: Bluetooth may be used, and macOS asks the first time. Off: none at all, the link kept for next time.
+    @objc func linkToggled() {
+        Link.engine.setEnabled(linkSwitch.state == .on)
+        reload()
+    }
+
+    /// Unlinks every phone, after saying what that means.
+    @objc func unlinkClicked() {
+        let alert = NSAlert()
+        alert.messageText = "Unlink all phones?"
+        alert.informativeText = "Your phones stop sharing the timer, projects and time with this Mac, and their time leaves "
+            + "this Mac's statistics. Each phone keeps its own record. You can link again at any time."
+        alert.addButton(withTitle: "Unlink")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Link.engine.unlink()
     }
 
     // MARK: Focus Sound

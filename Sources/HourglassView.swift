@@ -132,6 +132,11 @@ final class HourglassView: NSView {
     private var timer: Timer?
     /// What the timer has done, day by day; `Statistics…` shows it.
     private var log = SandLog.load()
+    /// The linked phones' records, added together, as the last sync left them: counted with this Mac's own in
+    /// Statistics and toward the daily target.
+    private var linkedLog = SandLog.linked()
+    /// The link to phones, once `Link.start` has set it up; tests leave it nil.
+    weak var link: LinkEngine?
     /// Every project, and the one the sand is running for now (nil for none). Time is counted against its id.
     private(set) var projects = ProjectList.load()
     private(set) var activeProjectID: String? = HourglassView.startingProject()
@@ -210,6 +215,7 @@ final class HourglassView: NSView {
         let running = clock.isRunning(at: now)
         // The focus noise plays while the sand runs, and fades away on a pause, an end or the sand running out.
         FocusNoise.shared.setSessionRunning(running)
+        FocusShortcuts.shared.setSessionRunning(running)  // Do Not Disturb, when turned on in Settings
         let finished = wasRunning && !running && clock.progress(at: now) >= 1
         if soundOn && finished {
             NSSound(named: "Glass")?.play()
@@ -927,7 +933,7 @@ final class HourglassView: NSView {
         chimes.state = minuteChimesOn ? .on : .off
         menu.addItem(chimes)
         menu.addItem(.separator())
-        menu.addItem(item("Sound Settings…", #selector(settingsClicked)))
+        menu.addItem(item("Sound Settings…", #selector(soundSettingsClicked)))
         parent.submenu = menu
         return parent
     }
@@ -1089,9 +1095,14 @@ final class HourglassView: NSView {
     /// A command that arrived while the glass was still turning or falling, to be carried out once it settles.
     private var awaitingStillness: (() -> Void)?
 
-    /// Writes down what the timer is doing now, so the MCP server can answer without asking the app.
+    /// Writes down what the timer is doing now, so the MCP server can answer without asking the app, and tells a
+    /// linked phone.
     func publishState() {
-        let now = Date()
+        UserDefaults.standard.set(currentState(at: Date()).stored, forKey: TimerState.key)
+        link?.timerChanged()
+    }
+
+    private func currentState(at now: Date) -> TimerState {
         var state = TimerState(minutes: minutes, updated: now, project: activeProjectID)
         if clock.isRunning(at: now) {
             state.started = sessionStartedAt
@@ -1100,7 +1111,7 @@ final class HourglassView: NSView {
             state.started = sessionStartedAt
             state.pausedWith = clock.remaining(at: now)
         }
-        UserDefaults.standard.set(state.stored, forKey: TimerState.key)
+        return state
     }
 
     /// Seconds of sand left, as of now.
@@ -1178,13 +1189,22 @@ final class HourglassView: NSView {
     /// "21:18/60:00": how long the sand has run today against the target, or nil when there is no target.
     var dailyGoalLabel: String? {
         guard dailyTargetMinutes > 0 else { return nil }
-        return SandLog.goalLabel(seconds: log.seconds(on: Date()), target: TimeInterval(dailyTargetMinutes * 60))
+        return SandLog.goalLabel(seconds: secondsToday, target: TimeInterval(dailyTargetMinutes * 60))
     }
 
     /// How much of the target today's sand has run: 1 is all of it, and a day can go past it.
     private var dailyGoalFraction: Double? {
         guard dailyTargetMinutes > 0 else { return nil }
-        return log.seconds(on: Date()) / TimeInterval(dailyTargetMinutes * 60)
+        return secondsToday / TimeInterval(dailyTargetMinutes * 60)
+    }
+
+    /// How long the sand has run today, here and on any linked phone.
+    private var secondsToday: TimeInterval { log.seconds(on: Date()) + linkedLog.seconds(on: Date()) }
+
+    /// Reads the linked phones' records again, after a sync.
+    func reloadLinked() {
+        linkedLog = SandLog.linked()
+        needsDisplay = true
     }
 
     /// While the pointer rests on the base plate, the day's figure is printed above the line: "21:18/3:00:00". It fades
@@ -1271,11 +1291,15 @@ final class HourglassView: NSView {
     var startsAtLogin: Bool { SMAppService.mainApp.status == .enabled }
 
     @objc func settingsClicked() { SettingsPanel.show(for: self) }
+    @objc func soundSettingsClicked() { SettingsPanel.show(for: self, page: 2) }
+    @objc func manageProjectsClicked() { SettingsPanel.show(for: self, page: 1) }
 
     @objc func welcomeClicked() { WelcomePanel.show(for: self) }
 
     /// What the statistics window draws, read afresh each time it refreshes.
-    var statistics: Statistics { Statistics(log: log, sand: Theme(color: themeIndex, base: base).sand, projects: projects) }
+    var statistics: Statistics {
+        Statistics(log: log.including(linkedLog), sand: Theme(color: themeIndex, base: base).sand, projects: projects)
+    }
 
     /// The sand's colour and the caps': the project's colour while one is on, the Appearance colour otherwise.
     var theme: Theme {
@@ -1320,6 +1344,13 @@ final class HourglassView: NSView {
 
     /// Takes a changed list of projects from Settings. Removing the project that's on switches to none.
     func updateProjects(_ list: ProjectList) {
+        takeLinkedProjects(list.stamped(since: projects, at: Date()))
+        link?.projectsChanged()
+    }
+
+    /// Takes a list of projects as it stands, already stamped: from Settings by way of `updateProjects`, or put
+    /// together with a linked phone's.
+    func takeLinkedProjects(_ list: ProjectList) {
         projects = list
         list.save()
         if projects.project(activeProjectID)?.archived != false { switchProject(to: nil, force: true) }
@@ -1372,7 +1403,7 @@ final class HourglassView: NSView {
         none.isEnabled = open
         menu.addItem(none)
         menu.addItem(.separator())
-        let manage = NSMenuItem(title: "Manage Projects…", action: #selector(settingsClicked), keyEquivalent: "")
+        let manage = NSMenuItem(title: "Manage Projects…", action: #selector(manageProjectsClicked), keyEquivalent: "")
         manage.target = self
         menu.addItem(manage)
         parent.submenu = menu
@@ -1399,7 +1430,9 @@ final class HourglassView: NSView {
     /// Counts the time the sand has actually been running since the last tick, and the timers that run all the way
     /// out. Real time, not sand time: a flip moves the sand about without adding to the day.
     private func recordRun(finished: Bool, at now: Date) {
-        if let since = countedUpTo {
+        // A session a linked phone started is counted there; here it only shows.
+        let counts = link?.countsHere ?? true
+        if counts, let since = countedUpTo {
             // Sand stops at the moment the top empties, however late this tick comes — the Mac may have slept.
             let until = min(now, clock.finishTime ?? now)
             if until > since {
@@ -1408,7 +1441,7 @@ final class HourglassView: NSView {
             }
         }
         countedUpTo = clock.isRunning(at: now) ? now : nil
-        if finished { log.add(finished: 1, project: activeProjectID ?? "", on: now) }
+        if finished && counts { log.add(finished: 1, project: activeProjectID ?? "", on: now) }
         // Written in batches while it runs, and once more as soon as it stops: a crash costing a few seconds of the
         // record matters less than writing on every frame would.
         if finished || unsavedSeconds >= Self.saveRunEvery || (countedUpTo == nil && unsavedSeconds > 0) {
@@ -1570,6 +1603,77 @@ final class HourglassView: NSView {
         guard let window else { return }
         let frame = expansion.map { window.frame.insetBy(dx: $0.dx, dy: $0.dy) } ?? window.frame
         UserDefaults.standard.set([frame.origin.x, frame.origin.y], forKey: "origin")
+    }
+}
+
+// MARK: A linked phone
+
+extension HourglassView: LinkHost {
+    func ownLog() -> SandLog { log }
+
+    func localTimer() -> SharedTimer {
+        let state = currentState(at: Date())
+        return SharedTimer(minutes: state.minutes, started: state.started, runningUntil: state.runningUntil,
+                           pausedWith: state.pausedWith, project: state.project)
+    }
+
+    func linkChanged() { reloadLinked() }
+
+    /// Takes on the timer as a linked phone left it: flipped, paused, resumed, ended, or set to another length or
+    /// project there. The glass moves as if a hand had done it here, then the sand is put exactly where the phone's is.
+    func adopt(_ timer: SharedTimer, counts: Bool) {
+        whenStill { [weak self] in self?.adoptNow(timer) }
+    }
+
+    private func adoptNow(_ shared: SharedTimer) {
+        let now = Date()
+        if shared.project != activeProjectID { switchProject(to: shared.project, force: true) }
+        let running = clock.isRunning(at: now), paused = clock.isPaused(at: now)
+        let left = shared.remaining(at: now)
+        func useLength() {
+            guard shared.minutes != minutes else { return }
+            minutes = min(60, max(1, shared.minutes))
+            UserDefaults.standard.set(minutes, forKey: "minutes")
+        }
+        /// The sand where the phone's is: `left` seconds of it still on top, falling or not.
+        func placeSand(flowing: Bool) {
+            useLength()
+            let duration = TimeInterval(minutes * 60)
+            clock = SandClock(duration: duration, progress: 1 - min(1, left / duration), runningSince: flowing ? now : nil)
+            sessionStartedAt = shared.started ?? now
+        }
+        switch shared.phase(at: now) {
+        case .running:
+            if running {
+                guard !shared.sameSession(as: localTimer()) || abs((clock.finishTime ?? now).timeIntervalSince(shared.runningUntil!)) > 1
+                else { break }
+                placeSand(flowing: true)
+                settleSand(at: now)
+                releasedAt = now
+            } else if paused {
+                placeSand(flowing: false)
+                resumeClicked()  // stands it up, and the sand runs again
+            } else {
+                useLength()
+                flipTimer()
+                placeSand(flowing: true)
+            }
+        case .paused:
+            if running {
+                pauseClicked()  // lays it down
+                placeSand(flowing: false)
+            } else if paused {
+                placeSand(flowing: false)
+            } else {
+                placeSand(flowing: true)  // as when the app reopens on a paused timer: standing, then laid down
+                releasedAt = .distantPast
+                pauseClicked()
+            }
+        case .idle:
+            if running || paused { endClicked() } else if shared.minutes != minutes { setDuration(minutes: shared.minutes) }
+        }
+        publishState()
+        needsDisplay = true
     }
 }
 

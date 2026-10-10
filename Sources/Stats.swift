@@ -380,7 +380,13 @@ extension SandLog {
     }
 
     func save(to defaults: UserDefaults = .standard) {
-        defaults.set(days.mapValues { day -> [String: Any] in
+        defaults.set(stored, forKey: Self.defaultsKey)
+    }
+
+    /// The record as the settings keep it: by day key, each day's seconds, finishes, projects and hours. A linked
+    /// device's record travels in the same form, so the Android app writes it this way too.
+    var stored: [String: [String: Any]] {
+        days.mapValues { day -> [String: Any] in
             var entry: [String: Any] = ["seconds": day.seconds, "finished": day.finished]
             if !day.projects.isEmpty { entry["projects"] = Self.stored(day.projects) }
             if !day.hours.isEmpty {
@@ -391,6 +397,60 @@ extension SandLog {
                 })
             }
             return entry
-        }, forKey: Self.defaultsKey)
+        }
+    }
+}
+
+// MARK: Records from linked devices
+
+extension SandLog {
+    /// Where the records of linked devices are kept, by device id, each in the form `stored` writes. The statistics,
+    /// the daily target and the MCP server count them with this Mac's own.
+    static let linkedKey = "linkedLogs"
+
+    /// This record with `other`'s time and finishes added in, day by day, hour by hour and project by project.
+    func including(_ other: SandLog) -> SandLog {
+        var sum = self
+        for (key, theirs) in other.days {
+            var day = sum.days[key] ?? Day()
+            day.seconds += theirs.seconds
+            day.finished += theirs.finished
+            Self.add(theirs.projects, to: &day.projects)
+            for (hour, slot) in theirs.hours {
+                var mine = day.hours[hour] ?? Slot()
+                mine.seconds += slot.seconds
+                mine.finished += slot.finished
+                Self.add(slot.projects, to: &mine.projects)
+                day.hours[hour] = mine
+            }
+            sum.days[key] = day
+        }
+        return sum
+    }
+
+    private static func add(_ tallies: [String: Tally], to total: inout [String: Tally]) {
+        for (id, tally) in tallies {
+            total[id, default: Tally()].seconds += tally.seconds
+            total[id]?.finished += tally.finished
+        }
+    }
+
+    /// Every linked device's record, added together.
+    static func linked(stored: [String: Any]?) -> SandLog {
+        (stored ?? [:]).values.reduce(SandLog()) { sum, record in
+            sum.including(load(stored: record as? [String: [String: Any]] ?? [:]))
+        }
+    }
+
+    static func linked(from defaults: UserDefaults = .standard) -> SandLog {
+        linked(stored: defaults.dictionary(forKey: linkedKey))
+    }
+
+    /// The record cut into months, keyed yyyy-MM, each in the stored form: how it is sent to linked devices, a
+    /// document a month, so a day's change sends one small month rather than the whole history.
+    var storedByMonth: [String: [String: [String: Any]]] {
+        var months: [String: [String: [String: Any]]] = [:]
+        for (key, entry) in stored { months[String(key.prefix(7)), default: [:]][key] = entry }
+        return months
     }
 }

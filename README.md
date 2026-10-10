@@ -111,6 +111,42 @@ or the sand running out. The same menu switches the short sounds on and off — 
 fall and the finish, and an optional chime each minute — and Settings has the volume, and a
 softness that muffles the noises' highs.
 
+**Focus** in Settings turns on Do Not Disturb while the sand runs, and off at a pause, an end
+or the sand running out. macOS lets apps do that only through Shortcuts, so make two shortcuts
+once in the Shortcuts app: **Sand Timer Focus On**, with a **Set Focus** action turning Do Not
+Disturb on, and **Sand Timer Focus Off**, turning it off. With **Share Across Devices** on in
+Focus settings, your iPhone follows the Mac.
+
+### On your phone
+
+There is a Sand Timer for iPhone (`ios/`) and for Android (`android/`). Each has the same
+glass as the Mac, drawn the same way: tap it to flip it, tap again to pause (it lies on its
+side). Each also has the lengths from the Mac's menu, projects, a daily target along the
+base, a chime when the time is up, and its own Statistics. The screen stays on while the sand
+runs (a switch in Settings). On Android, a notification counts down while the timer runs, with
+Pause and End, and **Do Not Disturb while the sand runs** turns on a Do Not Disturb mode called
+Sand Timer until the sand stops. Android also has a clean view: while the sand runs and the phone
+lies still, everything but the glass fades away, and moving or touching the phone brings it back.
+Neither app needs a Mac or an account.
+
+Linking to your Mac is optional, and off until you turn it on; until then neither app touches
+Bluetooth. To link, turn on **Link with a phone** in the Mac's **Settings…** and click **Link a
+Phone…**, then turn on **Link to a Mac** in the phone's Settings and scan the code. You can link
+an iPhone and an Android phone at the same time.
+
+From then on, whenever the phone is near the Mac, the two talk over Bluetooth and share one
+timer: flip it on either and both glasses run, pause it on either and both lie down. Only the
+device that started a session counts its time, so nothing is counted twice. They also share one
+list of projects, and each counts the other's time in Statistics and toward the daily target.
+Apart, each carries on alone, and they catch up when they're near again. On Android, **Open when the Mac starts the timer**
+brings Sand Timer to the front as the Mac flips the glass, while the phone's screen is on (it asks
+once to be allowed to display over other apps). iOS doesn't let an app bring itself forward.
+
+Everything goes straight between your devices, encrypted with a key that only the QR code
+carries; nothing goes through the internet. The code works as a password while it's on screen,
+so it closes itself after two minutes. **Unlink All** on the Mac forgets every phone, and each
+phone keeps its own record.
+
 ## What it does
 
 The sand behaves like sand. A crater deepens in the top as it drains, a pile builds up

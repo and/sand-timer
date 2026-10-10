@@ -1,7 +1,7 @@
 import Foundation
 
 /// Sand Timer's MCP server: one JSON-RPC message per line on stdin, one per line on stdout, which is how Claude
-/// talks to a program on your own Mac. It reads the record the timer keeps and nothing else — it cannot start,
+/// talks to a program on your own Mac. It reads the record the timer keeps (with any linked phone's) and nothing else — it cannot start,
 /// stop or change the timer, and it makes no network calls.
 ///
 ///     claude mcp add sand-timer -- /Applications/Sand\ Timer.app/Contents/MacOS/sand-timer-mcp
@@ -15,7 +15,9 @@ let timerPreferences = "io.github.and.SandTimer" as CFString
 func currentRecord() -> SandLog {
     CFPreferencesAppSynchronize(timerPreferences)
     let stored = CFPreferencesCopyAppValue(SandLog.defaultsKey as CFString, timerPreferences) as? [String: [String: Any]]
-    return SandLog.load(stored: stored ?? [:])
+    // A linked phone's time counts here as it does in the Statistics window.
+    let linked = CFPreferencesCopyAppValue(SandLog.linkedKey as CFString, timerPreferences) as? [String: Any]
+    return SandLog.load(stored: stored ?? [:]).including(SandLog.linked(stored: linked))
 }
 
 /// What the timer is doing, as the app last wrote it down.

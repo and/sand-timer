@@ -38,6 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         view.restoreSession()  // a run that was going, or paused, when the app was last closed carries on
         view.publishState()  // so anything reading from outside knows what the timer is doing from the start
         UpdateChecker.shared.start()  // a quiet look once a day, unless the menu's Check for Updates is off
+        FocusShortcuts.shared.active = true
+        Link.start(owner: view)  // one timer, the projects and the record shared with a linked phone, once one is linked
+        NotificationCenter.default.addObserver(forName: LinkEngine.changed, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { SettingsPanel.open?.settings.reload() }
+        }
         keepItOnEveryDesktop()
         // A new install is welcomed once the timer is on screen: how it's worked, and a few choices, Start at Login
         // among them. An install updated from an earlier version has seen all that already.
@@ -72,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         view?.publishState()  // so the next launch knows exactly how much sand was left
         view?.flushStatistics()  // the last stretch of sand still counts
+        FocusShortcuts.shared.quitting()
     }
 
     /// Sitting above your work on whichever desktop you are on.

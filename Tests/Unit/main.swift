@@ -2,6 +2,7 @@
 clockTests()
 statsTests()
 projectTests()
+linkTests()
 mcpTests()
 updateTests()
 sandTests()

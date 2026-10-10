@@ -12,21 +12,37 @@ struct Project: Equatable {
     var shakes: Bool
     /// Removed from the menus and from shaking, but kept so its time still has a name and a colour.
     var archived: Bool
+    /// When it was last made or changed, so that a linked phone's copy and this one can be put together: the
+    /// later change wins. Projects from before linking existed carry the distant past, and lose to any change.
+    var updated: Date
 
-    init(id: String = UUID().uuidString, name: String, color: String, shakes: Bool = true, archived: Bool = false) {
+    init(id: String = UUID().uuidString, name: String, color: String, shakes: Bool = true, archived: Bool = false,
+         updated: Date = .distantPast) {
         self.id = id
         self.name = name
         self.color = color
         self.shakes = shakes
         self.archived = archived
+        self.updated = updated
     }
 
-    var stored: [String: Any] { ["id": id, "name": name, "color": color, "shakes": shakes, "archived": archived] }
+    /// Whether two copies say the same, whenever each was written.
+    func sameAs(_ other: Project) -> Bool {
+        var other = other
+        other.updated = updated
+        return self == other
+    }
 
+    var stored: [String: Any] {
+        ["id": id, "name": name, "color": color, "shakes": shakes, "archived": archived, "updated": updated.timeIntervalSince1970]
+    }
+
+    /// From the app's settings, or from a linked device's copy, which is written the same way.
     init?(stored: [String: Any]) {
         guard let id = stored["id"] as? String, !id.isEmpty else { return nil }
         self.init(id: id, name: stored["name"] as? String ?? "Project", color: stored["color"] as? String ?? "#6C2ED6",
-                  shakes: stored["shakes"] as? Bool ?? true, archived: stored["archived"] as? Bool ?? false)
+                  shakes: stored["shakes"] as? Bool ?? true, archived: stored["archived"] as? Bool ?? false,
+                  updated: (stored["updated"] as? Double).map(Date.init(timeIntervalSince1970:)) ?? .distantPast)
     }
 }
 
@@ -61,6 +77,31 @@ struct ProjectList: Equatable {
         guard let here = ring.firstIndex(where: { $0.id == current }) else { return ring[0] }
         let next = ring[(here + 1) % ring.count]
         return next.id == current ? nil : next
+    }
+
+    /// This list after a change made here, with each project that is new or different from `before` stamped `now`.
+    func stamped(since before: ProjectList, at now: Date) -> ProjectList {
+        var list = self
+        for index in list.all.indices {
+            let project = list.all[index]
+            if let old = before.project(project.id), old.sameAs(project) { continue }
+            list.all[index].updated = now
+        }
+        return list
+    }
+
+    /// This list and a linked device's put together: every project either knows, each as it was last changed — the
+    /// later `updated` wins, and on a tie this list's — in this list's order, with the ones only `other` has after them.
+    func merged(with other: ProjectList) -> ProjectList {
+        var list = self
+        for theirs in other.all {
+            if let index = list.all.firstIndex(where: { $0.id == theirs.id }) {
+                if theirs.updated > list.all[index].updated { list.all[index] = theirs }
+            } else {
+                list.all.append(theirs)
+            }
+        }
+        return list
     }
 
     static func load(stored: [[String: Any]]?) -> ProjectList {

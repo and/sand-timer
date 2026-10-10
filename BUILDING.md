@@ -88,6 +88,44 @@ ffmpeg -framerate 12 -i frames/f%03d.png -i palette.png \
 
 The shared palette matters: generated per frame, the sand's speckle bands badly.
 
+## The phone apps and linking
+
+```sh
+cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew assembleDebug testDebugUnitTest
+cd ios && xcodegen && open SandTimer.xcodeproj
+```
+
+The iPhone app (`ios/`, SwiftUI, iOS 17 and later) is compiled from the Mac's own `Model.swift`,
+`SandPhysics.swift`, `Stats.swift`, `Projects.swift`, `TimerState.swift`, `LinkFormat.swift` and
+`LinkEngine.swift`.
+Its `GlassRenderer.swift` is the Mac's `HourglassRenderer` drawn with UIKit. When the sand
+starts, the moment it runs out is handed to the system as a notification. The Android app's
+`ui/Hourglass.kt` is the same renderer ported to Compose.
+
+The app is in `android/` (package `io.github.and.sandtimer`, Android 13 and later). The timer
+is kept as moments in time (`data/TimerState.kt`), and the moment the sand runs out sets an
+exact alarm. A notification stands in for the timer while you're in another app. The record
+is kept in the Mac's own format (`data/SandLog.kt` matches `SandLog.stored`), so the two read
+each other's time without any conversion.
+
+Linking is Bluetooth Low Energy, straight between the devices, and off until it's turned on in
+Settings. The Mac makes a 256-bit key; the QR code carries `sandtimer-link:2:<key, base64url>`.
+The Mac is the peripheral: it offers a GATT service whose UUID is drawn from the key
+(`LinkFormat.serviceUUID`), so a phone only ever finds its own Mac. The phone writes to one
+characteristic and hears the Mac on the other. Each message is JSON sealed with AES-GCM and cut
+into pieces of at most 512 bytes, each led by a byte saying whether more follow.
+
+The Mac is the hub and passes each phone's news on to the others. `Sources/LinkEngine.swift`
+(the Mac and the iPhone) and `android/…/link/LinkEngine.kt` speak the same messages:
+
+- `hello`: the device, the months of the record it holds with a digest of each, its projects
+  and the timer. Each side sends one as they connect.
+- `timer`: the shared timer, stamped when it changes; the later stamp wins. The device that
+  started a session owns it, and only the owner counts its time.
+- `projects`: one list, merged by each project's `updated` stamp (the later change wins).
+- `logs`: one month of one device's record, sent only where the other side's digest differs.
+- `bye` and `unlinked`: a phone unlinking itself, and the Mac unlinking every phone.
+
 ## Layout
 
 | | |
@@ -101,6 +139,12 @@ The shared palette matters: generated per frame, the sand's speckle bands badly.
 | `Sources/Updates.swift` | the once-a-day look for a newer release |
 | `Sources/StatsWindow.swift` | the statistics window and its bar chart |
 | `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
+| `Sources/FocusShortcuts.swift` | Do Not Disturb while the sand runs, through two shortcuts |
 | `Sources/TimerState.swift` | what the timer is doing, shared with the MCP server |
+| `Sources/Link.swift` | linking a phone: the Mac's Bluetooth side and the QR code window |
+| `Sources/LinkEngine.swift` | what linked devices say to each other, shared with the iPhone app |
+| `Sources/LinkFormat.swift` | the QR code, the Bluetooth service, sealing and the shared timer |
+| `ios/` | the iPhone app (SwiftUI), sharing the Mac's model sources |
+| `android/` | the Android app (Kotlin, Compose) |
 | `Tools/SandTimerMCP/` | the MCP server Claude reads and drives the timer through |
 

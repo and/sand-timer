@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/FocusNoise.swift Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/Welcome.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
+  APP_SOURCES=(Sources/FocusNoise.swift Sources/FocusShortcuts.swift Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/Welcome.swift Sources/LinkFormat.swift Sources/LinkEngine.swift Sources/Link.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
@@ -120,6 +120,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleURLSchemes</key><array><string>sandtimer</string></array>
   </dict></array>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Sand Timer uses Bluetooth to share the timer, your projects and statistics with Sand Timer on your linked phone.</string>
 </dict>
 </plist>
 PLIST
