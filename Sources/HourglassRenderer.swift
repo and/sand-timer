@@ -29,6 +29,7 @@ struct Theme {
         ("Blue", rgb(40, 118, 226), rgb(108, 162, 238)),
         ("White", rgb(236, 233, 226), rgb(238, 238, 236)),
         ("Black", rgb(34, 33, 36), rgb(44, 44, 48)),
+        ("Sand", rgb(214, 182, 136), rgb(228, 206, 172)),  // the colour of real sand
     ]
 
     init(color: Int, base: Base) {
@@ -136,7 +137,8 @@ final class HourglassRenderer {
             innerPath = glassPath(inner: true)
         }
     }
-    private let speckles: [(rect: CGRect, light: Bool)]
+    /// Grains of several tones and sizes, the way real sand is never one colour: 0 deep, 1 dark, 2 light, 3 glint.
+    private let speckles: [(rect: CGRect, tone: Int)]
     /// The glass and caps never change, so they're rendered once per color and pixel scale and reused every frame.
     private var layerCache: [String: (back: CGImage, front: CGImage)] = [:]
     private let layerBounds = CGRect(x: -4, y: -4, width: 208, height: 408)
@@ -153,10 +155,13 @@ final class HourglassRenderer {
         // Seen through a round glass, grains crowd toward the walls: spread them with a cylindrical-lens mapping.
         let lens: CGFloat = 54
         let center = cx
-        speckles = (0..<1100).map { _ in
+        speckles = (0..<2400).map { _ in
             let u = max(-1, min(1, (random() * 112 - 56) / lens))
             let x = center + lens * sin(.pi / 2 * u)
-            return (CGRect(x: x, y: 44 + random() * 312, width: 1.3, height: 1.3), random() < 0.5)
+            let pick = random()
+            let tone = pick < 0.03 ? 3 : pick < 0.33 ? 0 : pick < 0.6 ? 1 : 2
+            let size = tone == 3 ? 0.8 : 0.9 + random() * 0.8
+            return (CGRect(x: x, y: 44 + random() * 312, width: size, height: size), tone)
         }
     }
 
@@ -167,17 +172,17 @@ final class HourglassRenderer {
     /// - `groundOffset`: how far below the timer's center the ground is.
     /// - `lying`: 0 standing on its base, 1 lying on its side.
     /// - `strength`: 1 resting on the ground, toward 0 as it's lifted away.
-    func drawShadow(groundOffset: CGFloat, lying: CGFloat, strength: CGFloat) {
+    func drawShadow(groundOffset: CGFloat, lying: CGFloat, strength: CGFloat, sand: NSColor? = nil) {
         guard strength > 0.01 else { return }
         let ground = neckY + groundOffset
         let lift = 1 - strength
-        func pool(centerX: CGFloat, width: CGFloat, height: CGFloat, alpha: CGFloat) {
+        func pool(centerX: CGFloat, width: CGFloat, height: CGFloat, alpha: CGFloat, color: NSColor = .black) {
             guard alpha > 0.005 else { return }
             NSGradient(colorsAndLocations:
-                (NSColor(white: 0, alpha: alpha), 0),
-                (NSColor(white: 0, alpha: alpha * 0.55), 0.35),
-                (NSColor(white: 0, alpha: alpha * 0.18), 0.7),
-                (NSColor(white: 0, alpha: 0), 1)
+                (color.withAlphaComponent(alpha), 0),
+                (color.withAlphaComponent(alpha * 0.55), 0.35),
+                (color.withAlphaComponent(alpha * 0.18), 0.7),
+                (color.withAlphaComponent(0), 1)
             )?.draw(in: NSBezierPath(ovalIn: CGRect(x: centerX - width / 2, y: ground - height / 2, width: width, height: height)),
                     relativeCenterPosition: .zero)
         }
@@ -189,6 +194,11 @@ final class HourglassRenderer {
         pool(centerX: cx, width: 175 + 40 * lift, height: 10 + 6 * lift, alpha: 0.3 * contact * max(0, 1 - 2 * lying))
         for side: CGFloat in [-1, 1] {
             pool(centerX: cx + side * 178, width: 58 + 30 * lift, height: 9 + 6 * lift, alpha: 0.32 * contact * max(0, 2 * lying - 1))
+        }
+        // Light that passed through the sand lands beside the shadow, faintly coloured by it.
+        if let sand {
+            let glow = sand.blended(withFraction: 0.3, of: .white) ?? sand
+            pool(centerX: cx + 70, width: 110 + 40 * lift, height: 12 + 8 * lift, alpha: 0.14 * strength * (1 - lying), color: glow)
         }
     }
 
@@ -291,11 +301,45 @@ final class HourglassRenderer {
     private func drawGlassFront(theme: Theme) {
         NSGraphicsContext.saveGraphicsState()
         innerPath.addClip()
+        drawRefraction()
         drawHighlights()
+        drawWindowReflection()
         NSGraphicsContext.restoreGraphicsState()
         strokeGlass()
         drawCap(top: true, theme: theme)
         drawCap(top: false, theme: theme)
+        drawCaustic(theme: theme)
+    }
+
+    /// Thick curved glass bends what's behind it: near the walls everything is seen through more glass, and darker.
+    private func drawRefraction() {
+        NSColor(white: 0, alpha: 0.1).setStroke()
+        innerPath.lineWidth = 14
+        innerPath.stroke()
+        NSColor(white: 0, alpha: 0.08).setStroke()
+        innerPath.lineWidth = 6
+        innerPath.stroke()
+    }
+
+    /// A window behind the viewer, reflected in the front of each bulb: two soft panes, upper left, fading at their
+    /// edges the way a reflection in curved glass does.
+    private func drawWindowReflection() {
+        for top in [true, false] {
+            let y = top ? neckY - 132 : neckY + 40
+            for x in [cx - 39, cx - 27] {
+                let pane = NSBezierPath(ovalIn: CGRect(x: x, y: y, width: 10, height: 44))
+                NSGradient(colorsAndLocations: (NSColor(white: 1, alpha: 0.16), 0), (NSColor(white: 1, alpha: 0.07), 0.55),
+                           (NSColor(white: 1, alpha: 0), 1))?.draw(in: pane, relativeCenterPosition: .zero)
+            }
+        }
+    }
+
+    /// Light gathered by the glass and the sand onto the base beneath: a soft bright spot, tinted by the sand.
+    private func drawCaustic(theme: Theme) {
+        let spot = CGRect(x: cx - 34, y: bottomY - 1.5, width: 76, height: 6)
+        let tint = theme.sand.blended(withFraction: 0.55, of: .white) ?? theme.sand
+        NSGradient(colorsAndLocations: (tint.withAlphaComponent(0.4), 0), (tint.withAlphaComponent(0.12), 0.6), (tint.withAlphaComponent(0), 1))?
+            .draw(in: NSBezierPath(ovalIn: spot), relativeCenterPosition: .zero)
     }
 
     // MARK: Glass
@@ -459,11 +503,26 @@ final class HourglassRenderer {
         path.addClip()
         let bounds = path.bounds
         let visible = speckles.filter { bounds.intersects($0.rect) }
+        ctx.saveGState()
         ctx.translateBy(x: jostle.width, y: jostle.height)
-        ctx.setFillColor((base.blended(withFraction: 0.4, of: .white) ?? base).withAlphaComponent(0.55).cgColor)
-        ctx.fill(visible.filter(\.light).map(\.rect))
-        ctx.setFillColor((base.blended(withFraction: 0.45, of: .black) ?? base).withAlphaComponent(0.5).cgColor)
-        ctx.fill(visible.filter { !$0.light }.map(\.rect))
+        let tones: [NSColor] = [
+            (base.blended(withFraction: 0.5, of: .black) ?? base).withAlphaComponent(0.55),
+            (base.blended(withFraction: 0.25, of: .black) ?? base).withAlphaComponent(0.45),
+            (base.blended(withFraction: 0.4, of: .white) ?? base).withAlphaComponent(0.55),
+            NSColor(white: 1, alpha: 0.75),
+        ]
+        for (tone, color) in tones.enumerated() {
+            ctx.setFillColor(color.cgColor)
+            ctx.fill(visible.filter { $0.tone == tone }.map(\.rect))
+        }
+        ctx.restoreGState()
+        // Lit from above: the top of each heap catches the light.
+        NSGradient(starting: NSColor(white: 1, alpha: 0.16), ending: NSColor(white: 1, alpha: 0))?
+            .draw(in: CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 12), angle: 90)
+        // Where the sand presses against the glass it's in shade: a darker band along the wall.
+        edge.withAlphaComponent(0.4).setStroke()
+        innerPath.lineWidth = 7
+        innerPath.stroke()
         NSGraphicsContext.restoreGraphicsState()
     }
 

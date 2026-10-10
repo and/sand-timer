@@ -111,11 +111,11 @@ or the sand running out. The same menu switches the short sounds on and off — 
 fall and the finish, and an optional chime each minute — and Settings has the volume, and a
 softness that muffles the noises' highs.
 
-**Focus** in Settings turns on Do Not Disturb while the sand runs, and off at a pause, an end
-or the sand running out. macOS lets apps do that only through Shortcuts, so make two shortcuts
-once in the Shortcuts app: **Sand Timer Focus On**, with a **Set Focus** action turning Do Not
-Disturb on, and **Sand Timer Focus Off**, turning it off. With **Share Across Devices** on in
-Focus settings, your iPhone follows the Mac.
+**Do Not Disturb while the sand runs**, in Settings' **Phone & Focus**, turns Do Not Disturb on as
+the sand starts and off at a pause, an end or the sand running out. macOS lets apps do that only
+through Shortcuts, so the app comes with two: **Add Shortcuts…** puts **Sand Timer Focus On** and
+**Sand Timer Focus Off** in the Shortcuts app (open either there to pick another Focus, such as
+Work). With **Share Across Devices** on in Focus settings, your iPhone follows the Mac.
 
 ### On your phone
 
@@ -125,8 +125,9 @@ side). Each also has the lengths from the Mac's menu, projects, a daily target a
 base, a chime when the time is up, and its own Statistics. The screen stays on while the sand
 runs (a switch in Settings). On Android, a notification counts down while the timer runs, with
 Pause and End, and **Do Not Disturb while the sand runs** turns on a Do Not Disturb mode called
-Sand Timer until the sand stops. Android also has a clean view: while the sand runs and the phone
-lies still, everything but the glass fades away, and moving or touching the phone brings it back.
+Sand Timer until the sand stops. Both have a clean view: while the sand runs and the phone lies
+still, everything but the glass fades away and the glass moves to the middle of the screen; moving or
+touching the phone brings the rest back.
 Neither app needs a Mac or an account.
 
 Linking to your Mac is optional, and off until you turn it on; until then neither app touches

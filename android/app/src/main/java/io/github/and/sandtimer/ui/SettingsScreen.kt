@@ -183,7 +183,7 @@ private fun OpenOnMacStartRow(on: Boolean) {
     }
     Note(
         if (on && !allowed) "Allow Sand Timer under Display over other apps, then come back."
-        else "While the screen is on, Sand Timer comes to the front as the Mac flips the glass.",
+        else "Sand Timer comes to the front as the Mac flips the glass, waking the phone and showing over the lock screen if the screen is off.",
     )
 }
 

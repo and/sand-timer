@@ -52,6 +52,9 @@ final class FocusShortcuts {
         }
     }
 
+    /// The shortcut as it comes with the app, signed by Apple so Shortcuts will add it: opening it asks to.
+    static func bundled(_ name: String) -> URL? { Bundle.main.url(forResource: name, withExtension: "shortcut") }
+
     private func run(_ name: String) {
         queue.async { Self.shortcuts(["run", name]) }
     }

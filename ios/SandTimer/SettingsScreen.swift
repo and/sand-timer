@@ -9,7 +9,7 @@ struct SettingsScreen: View {
     @State private var problem: String?
 
     /// Colours for new projects, the Mac's sand colours first.
-    private static let palette = ["#6C2ED6", "#34BEA6", "#EC62A0", "#2876E2", "#E8833A", "#3FA34D", "#D4B106", "#8E5A3C", "#C2410C", "#475569"]
+    private static let palette = ["#6C2ED6", "#34BEA6", "#EC62A0", "#2876E2", "#D6B688", "#E8833A", "#3FA34D", "#D4B106", "#8E5A3C", "#C2410C", "#475569"]
 
     var body: some View {
         NavigationStack {
@@ -37,7 +37,8 @@ struct SettingsScreen: View {
                     Toggle("Chime when the time is up", isOn: $store.chime)
                     Toggle("One Thing at a Time", isOn: $store.oneThingAtATime)
                     Toggle("Keep the screen on", isOn: $store.keepScreenOn)
-                } header: { Text("Timer") } footer: { Text("One Thing at a Time keeps the project for the whole session. End the session to switch. The screen stays on while the sand runs and the timer is showing.") }
+                    Toggle("Clean view", isOn: $store.cleanView)
+                } header: { Text("Timer") } footer: { Text("One Thing at a Time keeps the project for the whole session. End the session to switch. The screen stays on while the sand runs and the timer is showing. Clean view fades everything but the glass after a few still seconds; move or touch the phone to bring it back.") }
 
                 Section {
                     Text("Sand Timer \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""). Your time stays on this phone unless you link it to your Mac.")

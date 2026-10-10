@@ -107,12 +107,12 @@ object Engine {
     }
 
     /**
-     * The Mac flipped the glass: come to the front to show it, if asked to and the screen is on. Android lets an app
-     * open itself from the background only with "Display over other apps" allowed, which turning this on asks for.
+     * The Mac flipped the glass: come to the front to show it, if asked to, waking the phone if its screen is off and
+     * showing over the lock screen, the way an alarm does. Android lets an app open itself from the background only
+     * with "Display over other apps" allowed, which turning this on asks for.
      */
     private fun bringForward(context: Context) {
         if (!Store.state.value.settings.openOnMacStart || !android.provider.Settings.canDrawOverlays(context)) return
-        if (!context.getSystemService(android.os.PowerManager::class.java).isInteractive) return
         runCatching {
             android.util.Log.i("SandTimer", "The Mac started the timer: coming to the front")
             context.startActivity(

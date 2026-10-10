@@ -43,6 +43,9 @@ private struct Glass: UIViewRepresentable {
 
 struct TimerScreen: View {
     @EnvironmentObject private var store: Store
+    @ObservedObject private var calm = Calm.shared
+    /// Where the middle of the glass sits among the controls, on screen: the clean view moves it to the middle.
+    @State private var glassMidY: CGFloat = 0
     /// When the glass last began to lie down or stand up, and which way: a pause lays it on its side, as on the Mac.
     @State private var tilt: (lying: Bool, since: Date)?
     /// When a flip began: the glass turns over before the sand starts to run.
@@ -62,10 +65,13 @@ struct TimerScreen: View {
             let canSwitch = !store.oneThingAtATime || !session.inSession(at: now)
 
             VStack(spacing: 10) {
-                projectChips(enabled: canSwitch)
-                if !canSwitch {
-                    Text("End the session to switch projects.").font(.caption).foregroundStyle(.secondary)
+                VStack(spacing: 10) {
+                    projectChips(enabled: canSwitch)
+                    if !canSwitch {
+                        Text("End the session to switch projects.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+                .opacity(calm.hidden ? 0 : 1)
                 let flip = flipSince.map { ease(now.timeIntervalSince($0) / Self.flipTime) * 180 }
                 Glass(
                     progress: flip != nil ? 1 : session.fallen(at: now),
@@ -78,9 +84,18 @@ struct TimerScreen: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture { press(now) }
+                // In the clean view the glass glides to the middle of the screen, the bars and controls gone.
+                .offset(y: calm.hidden ? Self.screenMidY - glassMidY : 0)
+                // Measured outside the offset: where the glass rests, not where it has glided to.
+                .background(GeometryReader { g in
+                    Color.clear
+                        .onAppear { glassMidY = g.frame(in: .global).midY }
+                        .onChange(of: g.frame(in: .global).midY) { _, y in glassMidY = y }
+                })
                 .onChange(of: paused) { _, paused in tilt = (paused, Date()) }
                 .onChange(of: running && session.remaining(at: now) < 0.05) { _, done in if done { store.settle() } }
 
+                VStack(spacing: 10) {
                 Text(running ? (project?.name ?? "Running") : paused ? "Paused · \(clock(left)) left" : "Tap the glass to start")
                     .foregroundStyle(.secondary)
 
@@ -102,15 +117,26 @@ struct TimerScreen: View {
                     }
                 }
                 today(now).font(.footnote).foregroundStyle(.secondary).padding(.bottom, 8)
+                }
+                .opacity(calm.hidden ? 0 : 1)
             }
+            .animation(.easeInOut(duration: calm.hidden ? 0.9 : 0.25), value: calm.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.ink)
             // Awake while the sand runs, if wanted: a glass you can't see is no use.
             .onChange(of: running && store.keepScreenOn, initial: true) { _, awake in
                 UIApplication.shared.isIdleTimerDisabled = awake
             }
+            .onChange(of: running && store.cleanView, initial: true) { _, on in calm.watch(on) }
         }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            calm.watch(false)
+        }
+    }
+
+    private static var screenMidY: CGFloat {
+        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.midY ?? 0
     }
 
     private var animating: Bool {

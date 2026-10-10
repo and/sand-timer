@@ -101,7 +101,7 @@ data class ProjectList(val all: List<Project> = emptyList()) {
 
         /** Colours for new projects, the Mac's sand colours first. */
         val palette = listOf(
-            "#6C2ED6", "#2876E2", "#34BEA6", "#E0559A", "#E8833A", "#3FA34D", "#D4B106", "#8E5A3C", "#C2410C", "#475569",
+            "#6C2ED6", "#2876E2", "#34BEA6", "#E0559A", "#D6B688", "#E8833A", "#3FA34D", "#D4B106", "#8E5A3C", "#C2410C", "#475569",
         )
     }
 }

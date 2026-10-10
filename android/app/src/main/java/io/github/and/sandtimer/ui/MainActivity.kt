@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (intent?.getBooleanExtra(SHOW_TIMER, false) == true) showTimer.value++
+        if (intent?.getBooleanExtra(SHOW_TIMER, false) == true) showTimerNow()
         enableEdgeToEdge()
         Store.init(this)
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -74,7 +74,21 @@ class MainActivity : ComponentActivity() {
     /** Opened again to show a timer the Mac just started: the Timer tab, whichever was showing. */
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra(SHOW_TIMER, false)) showTimer.value++
+        if (intent.getBooleanExtra(SHOW_TIMER, false)) showTimerNow()
+    }
+
+    /** The Mac started the timer: the Timer tab, lighting the screen and showing over the lock screen if need be. */
+    private fun showTimerNow() {
+        showTimer.value++
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+    }
+
+    /** Shown over the lock screen only for that moment: once put away, it waits behind the lock like any app. */
+    override fun onStop() {
+        super.onStop()
+        setShowWhenLocked(false)
+        setTurnScreenOn(false)
     }
 
     companion object {

@@ -21,7 +21,8 @@ final class GlassRenderer {
     private var neckScale: CGFloat = 1
     private lazy var outerPath = glassPath(inner: false)
     private lazy var innerPath = glassPath(inner: true)
-    private let speckles: [(rect: CGRect, light: Bool)]
+    /// Grains of several tones and sizes, the way real sand is never one colour: 0 deep, 1 dark, 2 light, 3 glint.
+    private let speckles: [(rect: CGRect, tone: Int)]
 
     private static let cap = UIColor(red: 22 / 255, green: 22 / 255, blue: 24 / 255, alpha: 1)
     private static let ink = UIColor(white: 0.84, alpha: 1)
@@ -38,10 +39,13 @@ final class GlassRenderer {
         // Seen through a round glass, grains crowd toward the walls: spread them with a cylindrical-lens mapping.
         let lens: CGFloat = 54
         let center = CGFloat(SandPhysics.centerX)
-        speckles = (0..<1100).map { _ in
+        speckles = (0..<2400).map { _ in
             let u = max(-1, min(1, (random() * 112 - 56) / lens))
             let x = center + lens * sin(.pi / 2 * u)
-            return (CGRect(x: x, y: 44 + random() * 312, width: 1.3, height: 1.3), random() < 0.5)
+            let pick = random()
+            let tone = pick < 0.03 ? 3 : pick < 0.33 ? 0 : pick < 0.6 ? 1 : 2
+            let size = tone == 3 ? 0.8 : 0.9 + random() * 0.8
+            return (CGRect(x: x, y: 44 + random() * 312, width: size, height: size), tone)
         }
     }
 
@@ -60,6 +64,14 @@ final class GlassRenderer {
         let standing = min(rect.width / 212, rect.height / 412)
         let onSide = min(rect.width / 412, rect.height / 212)
         let unit = standing + (onSide - standing) * lying
+        // The shadow on the ground stays upright whatever the glass does.
+        ctx.saveGState()
+        ctx.translateBy(x: rect.midX, y: rect.midY)
+        ctx.scaleBy(x: unit, y: unit)
+        ctx.translateBy(x: -cx, y: -neckY)
+        drawShadow(lying: lying, sand: sand)
+        ctx.restoreGState()
+
         ctx.saveGState()
         ctx.translateBy(x: rect.midX, y: rect.midY)
         ctx.rotate(by: CGFloat(angle))
@@ -88,6 +100,7 @@ final class GlassRenderer {
         drawGlassFront()
         drawCap(top: true)
         drawCap(top: false)
+        drawCaustic(sand: sand)
         printOnRing(display.time, ring: CGRect(x: 19, y: 354, width: 162, height: 28),
                     clip: CGRect(x: 19, y: 354, width: 162, height: 23), centerY: 365.5, alpha: 1)
         // The project is a mark moulded into the top ring rather than a second display, so the eye goes to the time.
@@ -126,7 +139,15 @@ final class GlassRenderer {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         ctx.saveGState()
         innerPath.addClip()
+        // Thick curved glass bends what's behind it: near the walls everything is seen through more glass, and darker.
+        UIColor(white: 0, alpha: 0.1).setStroke()
+        innerPath.lineWidth = 14
+        innerPath.stroke()
+        UIColor(white: 0, alpha: 0.08).setStroke()
+        innerPath.lineWidth = 6
+        innerPath.stroke()
         drawHighlights()
+        drawWindowReflection()
         ctx.restoreGState()
 
         // The thickness of the glass wall, slightly darker where you look through more glass.
@@ -151,6 +172,52 @@ final class GlassRenderer {
         UIColor(white: 1, alpha: 0.55).setStroke()
         innerPath.lineWidth = 0.8
         innerPath.stroke()
+    }
+
+    /// A soft oval glow, brightest in the middle, as reflections and pools of light are.
+    private func glow(in oval: CGRect, _ stops: [(UIColor, CGFloat)]) {
+        guard let ctx = UIGraphicsGetCurrentContext(),
+              let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: stops.map(\.0.cgColor) as CFArray,
+                                        locations: stops.map(\.1)) else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: oval.midX, y: oval.midY)
+        ctx.scaleBy(x: 1, y: oval.height / oval.width)
+        ctx.drawRadialGradient(gradient, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: oval.width / 2, options: [])
+        ctx.restoreGState()
+    }
+
+    /// A window behind the viewer, reflected in the front of each bulb: two soft glows, upper left.
+    private func drawWindowReflection() {
+        for top in [true, false] {
+            let y = top ? neckY - 132 : neckY + 40
+            for x in [cx - 39, cx - 27] {
+                glow(in: CGRect(x: x, y: y, width: 10, height: 44),
+                     [(UIColor(white: 1, alpha: 0.16), 0), (UIColor(white: 1, alpha: 0.07), 0.55), (UIColor(white: 1, alpha: 0), 1)])
+            }
+        }
+    }
+
+    /// Light gathered by the glass and the sand onto the base beneath: a soft bright spot, tinted by the sand.
+    private func drawCaustic(sand: UIColor) {
+        let tint = sand.mixed(0.55, .white)
+        glow(in: CGRect(x: cx - 34, y: bottomY - 1.5, width: 76, height: 6),
+             [(tint.withAlphaComponent(0.4), 0), (tint.withAlphaComponent(0.12), 0.6), (tint.withAlphaComponent(0), 1)])
+    }
+
+    /// The timer's shadow on the ground: a soft pool, darker where it touches, and beside it light that passed through
+    /// the sand, faintly coloured by it. `lying` is 0 standing, 1 on its side.
+    private func drawShadow(lying: CGFloat, sand: UIColor) {
+        let ground = neckY + 200 * (1 - lying) + 95 * lying
+        func pool(_ x: CGFloat, _ width: CGFloat, _ height: CGFloat, _ color: UIColor, _ alpha: CGFloat) {
+            guard alpha > 0.005 else { return }
+            glow(in: CGRect(x: x - width / 2, y: ground - height / 2, width: width, height: height),
+                 [(color.withAlphaComponent(alpha), 0), (color.withAlphaComponent(alpha * 0.55), 0.35),
+                  (color.withAlphaComponent(alpha * 0.18), 0.7), (color.withAlphaComponent(0), 1)])
+        }
+        let length = 186 + (400 - 186) * lying
+        pool(cx, length + 70, 26, .black, 0.35)
+        pool(cx, 175, 10, .black, 0.5 * max(0, 1 - 2 * lying))
+        pool(cx + 70, 110, 12, sand.mixed(0.3, .white), 0.16 * (1 - lying))
     }
 
     /// Soft reflections that follow the curve of each bulb.
@@ -242,10 +309,19 @@ final class GlassRenderer {
         path.addClip()
         let bounds = path.bounds
         let visible = speckles.filter { bounds.intersects($0.rect) }
-        ctx.setFillColor(sand.mixed(0.4, .white).withAlphaComponent(0.55).cgColor)
-        ctx.fill(visible.filter(\.light).map(\.rect))
-        ctx.setFillColor(sand.mixed(0.45, .black).withAlphaComponent(0.5).cgColor)
-        ctx.fill(visible.filter { !$0.light }.map(\.rect))
+        let tones = [sand.mixed(0.5, .black).withAlphaComponent(0.55), sand.mixed(0.25, .black).withAlphaComponent(0.45),
+                     sand.mixed(0.4, .white).withAlphaComponent(0.55), UIColor(white: 1, alpha: 0.75)]
+        for (tone, color) in tones.enumerated() {
+            ctx.setFillColor(color.cgColor)
+            ctx.fill(visible.filter { $0.tone == tone }.map(\.rect))
+        }
+        // Lit from above: the top of each heap catches the light.
+        gradient([(UIColor(white: 1, alpha: 0.16), 0), (UIColor(white: 1, alpha: 0), 1)],
+                 in: CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: 12), vertical: true, clipToRect: true)
+        // Where the sand presses against the glass it's in shade: a darker band along the wall.
+        edge.withAlphaComponent(0.4).setStroke()
+        innerPath.lineWidth = 7
+        innerPath.stroke()
         ctx.restoreGState()
     }
 

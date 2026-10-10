@@ -40,6 +40,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.alpha
 import androidx.compose.runtime.DisposableEffect
@@ -90,6 +96,10 @@ fun TimerScreen(modifier: Modifier = Modifier) {
     Calm.Watch(running && app.settings.calm)
     val calm by Calm.hidden.collectAsState()
     val controls by animateFloatAsState(if (calm) 0f else 1f, tween(if (calm) 900 else 200), label = "controls")
+    // Where the glass sits among the controls, and how far that is from the middle of the screen.
+    var glassCenter by remember { mutableStateOf(Offset.Zero) }
+    val screen = LocalWindowInfo.current.containerSize
+    val centring = if (glassCenter == Offset.Zero) Offset.Zero else Offset(screen.width / 2f, screen.height / 2f) - glassCenter
 
     val paused = state.isPaused(now)
     // A pause lays the glass on its side; a flip turns it over before the sand starts to run.
@@ -134,6 +144,7 @@ fun TimerScreen(modifier: Modifier = Modifier) {
         val goal = if (target > 0) (app.wholeLog.on(LocalDate.now()).seconds + counting) / (target * 60.0) else null
         Box(
             Modifier.weight(1f).fillMaxWidth()
+                .onGloballyPositioned { glassCenter = it.boundsInWindow().center }
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (flipping == 0L) press() },
             contentAlignment = Alignment.Center,
         ) {
@@ -146,7 +157,11 @@ fun TimerScreen(modifier: Modifier = Modifier) {
                 // The time printed on the base, the project on the top cap, and the day's target along the plate, as on the Mac.
                 display = Display(Notifications.clock(left), ((if (state.inSession(now)) sessionProject else project)?.name), goal),
                 time = now / 1000.0,
-                modifier = Modifier.fillMaxSize().padding(vertical = 8.dp),
+                // In the clean view the glass glides to the middle of the screen, the bars and controls gone.
+                modifier = Modifier.fillMaxSize().padding(vertical = 8.dp).graphicsLayer {
+                    translationX = centring.x * (1 - controls)
+                    translationY = centring.y * (1 - controls)
+                },
             )
         }
 

@@ -97,6 +97,8 @@ fi
 rm -rf build/AppIcon.iconset
 "$APP/Contents/MacOS/SandTimer" --iconset build/AppIcon.iconset
 iconutil -c icns build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
+# The two shortcuts Focus runs, ready to add from Settings (see Shortcuts/).
+cp Shortcuts/*.shortcut "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

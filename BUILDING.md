@@ -140,6 +140,7 @@ The Mac is the hub and passes each phone's news on to the others. `Sources/LinkE
 | `Sources/StatsWindow.swift` | the statistics window and its bar chart |
 | `Sources/main.swift` | app lifecycle, menu, `--snapshot` and `--iconset` |
 | `Sources/FocusShortcuts.swift` | Do Not Disturb while the sand runs, through two shortcuts |
+| `Shortcuts/` | those two shortcuts, signed for anyone to add (`.shortcut`), and their unsigned source (`.plist`) |
 | `Sources/TimerState.swift` | what the timer is doing, shared with the MCP server |
 | `Sources/Link.swift` | linking a phone: the Mac's Bluetooth side and the QR code window |
 | `Sources/LinkEngine.swift` | what linked devices say to each other, shared with the iPhone app |

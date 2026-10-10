@@ -92,6 +92,8 @@ final class SettingsView: NSView {
     let focusSwitch = NSButton(checkboxWithTitle: "Do Not Disturb while the sand runs", target: nil, action: nil)
     let focusStatus = NSTextField(wrappingLabelWithString: "")
     let focusButton = NSButton(title: "Open Shortcuts", target: nil, action: nil)
+    /// The Focus shortcuts not found in the Shortcuts app when Settings last looked.
+    private var missingShortcuts: [String] = []
     let linkSwitch = NSButton(checkboxWithTitle: "Link with a phone", target: nil, action: nil)
     let linkButton = NSButton(title: "Link a Phone…", target: nil, action: nil)
     let unlinkButton = NSButton(title: "Unlink All", target: nil, action: nil)
@@ -223,9 +225,9 @@ final class SettingsView: NSView {
         // Do Not Disturb, by way of two shortcuts: macOS has no switch for Focus that an app may use.
         let focusTitle = NSTextField(labelWithString: "Focus")
         focusTitle.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-        let focusHint = Self.note("Runs two shortcuts you make once in the Shortcuts app: “\(FocusShortcuts.onName)”, "
-                                  + "with Set Focus turning Do Not Disturb on, and “\(FocusShortcuts.offName)” turning it off. "
-                                  + "With Share Across Devices on in Focus settings, your iPhone follows.")
+        let focusHint = Self.note("Turns Do Not Disturb on as the sand starts and off when it stops, through two shortcuts: "
+                                  + "Add Shortcuts puts them in the Shortcuts app. With Share Across Devices on in Focus "
+                                  + "settings, your iPhone follows.")
         focusSwitch.target = self
         focusSwitch.action = #selector(focusToggled)
         focusStatus.font = .systemFont(ofSize: 11)
@@ -388,9 +390,11 @@ final class SettingsView: NSView {
         focusStatus.isHidden = !focus.isEnabled
         guard focus.isEnabled else { return }
         focus.missing { [weak self] missing in
+            self?.missingShortcuts = missing
+            self?.focusButton.title = missing.isEmpty ? "Open Shortcuts" : "Add Shortcuts…"
             self?.focusStatus.stringValue = missing.isEmpty
                 ? "Both shortcuts are ready."
-                : "Not found in Shortcuts yet: " + missing.map { "“\($0)”" }.joined(separator: " and ") + "."
+                : "Not in Shortcuts yet: " + missing.map { "“\($0)”" }.joined(separator: " and ") + "."
         }
     }
 
@@ -399,8 +403,14 @@ final class SettingsView: NSView {
         reload()
     }
 
+    /// Adds the shortcuts that are missing (Shortcuts asks about each), or opens Shortcuts when both are there.
     @objc func openShortcuts() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+        let files = missingShortcuts.compactMap(FocusShortcuts.bundled)
+        if files.isEmpty {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Shortcuts.app"))
+        } else {
+            files.forEach { NSWorkspace.shared.open($0) }
+        }
     }
 
     // MARK: Phone

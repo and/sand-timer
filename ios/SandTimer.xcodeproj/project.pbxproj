@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0484C82FEE3C731AC47DEAC1 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 907AD3253ECD4E5CCA066D9C /* Store.swift */; };
 		094DC1896B9685AAB4485AA2 /* SandTimerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62188481408CD563185BA363 /* SandTimerApp.swift */; };
+		144F8EC58D5938C0FDAE2DE2 /* Calm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F45CA551C3AEADB65362F2 /* Calm.swift */; };
 		14E86BC2077FBEF540EFE86F /* chime.wav in Resources */ = {isa = PBXBuildFile; fileRef = F2CC73031AF86C92F538B9AD /* chime.wav */; };
 		20C0A9E642022489187A41FD /* Stats.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5A3BF8C8E9798008706DD2F /* Stats.swift */; };
 		22842EE6474837967481F007 /* StatsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C6A2B62048759C341633FA3 /* StatsScreen.swift */; };
@@ -41,6 +42,7 @@
 		9BE85959CC8B557DABA46BD1 /* TimerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerScreen.swift; sourceTree = "<group>"; };
 		9EA1356FFECD4197574980AB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A7EBEB92699C0ECFCCAA81C8 /* TimerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TimerState.swift; path = ../Sources/TimerState.swift; sourceTree = "<group>"; };
+		B3F45CA551C3AEADB65362F2 /* Calm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Calm.swift; sourceTree = "<group>"; };
 		B643D823E7D7F21632136E25 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		C4E65A7D2D80089E5396437F /* GlassRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassRenderer.swift; sourceTree = "<group>"; };
 		E5A3BF8C8E9798008706DD2F /* Stats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Stats.swift; path = ../Sources/Stats.swift; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@
 			isa = PBXGroup;
 			children = (
 				9EA1356FFECD4197574980AB /* Assets.xcassets */,
+				B3F45CA551C3AEADB65362F2 /* Calm.swift */,
 				F2CC73031AF86C92F538B9AD /* chime.wav */,
 				C4E65A7D2D80089E5396437F /* GlassRenderer.swift */,
 				7BD7107B31EDC3D83530609E /* Info.plist */,
@@ -173,6 +176,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				144F8EC58D5938C0FDAE2DE2 /* Calm.swift in Sources */,
 				C4D8BA6B12095ED79E52E90F /* GlassRenderer.swift in Sources */,
 				C3910509A04B2A687CC2B205 /* LinkClient.swift in Sources */,
 				EF367F942B2C75009DA31F43 /* LinkEngine.swift in Sources */,

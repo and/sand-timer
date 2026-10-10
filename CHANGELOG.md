@@ -3,6 +3,13 @@
 Every release of Sand Timer, newest first. Each one can be downloaded from its
 [release page](https://github.com/and/sand-timer/releases).
 
+## 1.12.0 — 2026-10-10
+- **The glass looks more like the real thing.** Sand in grains of several tones with the odd glint, lit from above and shaded where it presses on the glass; walls that darken through thicker glass, a window's soft reflection, light gathered onto the base, and a faint sand-coloured glow beside the shadow. The phones get the shadow too.
+- **The clean view on iPhone too**, and on both phones the glass moves to the middle of the screen as the rest fades.
+- **Android wakes for the Mac.** With **Open when the Mac starts the timer** on, a timer started on the Mac lights a sleeping phone and shows the glass over the lock screen, as an alarm does.
+- **Do Not Disturb sets itself up.** **Add Shortcuts…** in Settings puts the two Focus shortcuts in the Shortcuts app, instead of making them by hand.
+- **Sand-coloured sand.** A natural Sand colour joins the timer's colours and the project palette.
+
 ## 1.11.0 — 2026-10-10
 - **Do Not Disturb while the sand runs.** Turn on **Focus** in Settings and make two shortcuts in the Shortcuts app, **Sand Timer Focus On** and **Sand Timer Focus Off**, each with a **Set Focus** action. The timer runs the first as the sand starts and the second when it stops, and an iPhone sharing Focus with the Mac follows.
 - **Sand Timer for iPhone and Android, and linking your phone.** The new phone apps put the Mac's glass on your phone, drawn the same way: tap to flip, tap to pause, with projects, a daily target, a chime, a countdown notification and its own Statistics. The screen stays on while the sand runs, and on Android the timer can turn on Do Not Disturb until it stops, and everything but the glass fades away while the phone lies still. Optionally, link the phone to your Mac with a QR code: turn on **Link with a phone** in **Settings…** and click **Link a Phone…**. Near each other, the two then share one timer over Bluetooth (start, pause or end it on either), one list of projects, and each other's time in Statistics, toward the daily target and in what Claude reads. A session is counted once, by the device that started it. Everything goes straight between your devices, encrypted, with no internet involved, and neither app touches Bluetooth until linking is turned on.

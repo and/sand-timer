@@ -39,12 +39,24 @@ extension Color {
 }
 
 struct RootView: View {
+    @ObservedObject private var calm = Calm.shared
+
     var body: some View {
         TabView {
-            TimerScreen().tabItem { Label("Timer", systemImage: "hourglass") }
+            TimerScreen()
+                .toolbar(calm.hidden ? .hidden : .visible, for: .tabBar)
+                .tabItem { Label("Timer", systemImage: "hourglass") }
             StatsScreen().tabItem { Label("Statistics", systemImage: "chart.bar.fill") }
             SettingsScreen().tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         .tint(.amber)
+        .statusBarHidden(calm.hidden)
+        .persistentSystemOverlays(calm.hidden ? .hidden : .automatic)
+        // While everything is hidden, a touch anywhere only brings it back: nothing invisible gets pressed by mistake.
+        .overlay {
+            if calm.hidden {
+                Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { calm.wake() }
+            }
+        }
     }
 }

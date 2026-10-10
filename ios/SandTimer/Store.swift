@@ -18,6 +18,8 @@ final class Store: ObservableObject {
     @Published var oneThingAtATime: Bool { didSet { defaults.set(oneThingAtATime, forKey: HourglassView.oneThingKey) } }
     /// Keep the screen awake while the sand runs and the timer is showing.
     @Published var keepScreenOn: Bool { didSet { defaults.set(keepScreenOn, forKey: "keepScreenOn") } }
+    /// While the sand runs, hide everything but the glass until the phone moves.
+    @Published var cleanView: Bool { didSet { defaults.set(cleanView, forKey: "cleanView") } }
     // Linking, as the link last told it
     @Published private(set) var linkEnabled = false
     @Published private(set) var linked = false
@@ -38,6 +40,7 @@ final class Store: ObservableObject {
         targetMinutes = defaults.integer(forKey: HourglassView.dailyTargetKey)
         oneThingAtATime = defaults.object(forKey: HourglassView.oneThingKey) as? Bool ?? true
         keepScreenOn = defaults.object(forKey: "keepScreenOn") as? Bool ?? true
+        cleanView = defaults.object(forKey: "cleanView") as? Bool ?? true
     }
 
     /// This phone's record with the linked devices': what Statistics and the target count.

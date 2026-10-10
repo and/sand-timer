@@ -256,8 +256,8 @@ data class Display(val time: String, val project: String?, val goal: Double?)
 
 /** Grains seen through the round glass, crowding toward the walls: the Mac's cylindrical-lens speckles. */
 private class Speckles {
-    val light = ArrayList<Offset>()
-    val dark = ArrayList<Offset>()
+    /** Grains of several tones, the way real sand is never one colour: deep, dark, light, and the odd glint. */
+    val tones = List(4) { ArrayList<Offset>() }
 
     init {
         var seed = 7uL
@@ -269,10 +269,11 @@ private class Speckles {
             return ((z xor (z shr 31)) shr 11).toDouble() / (1uL shl 53).toDouble()
         }
         val lens = 54.0
-        repeat(1100) {
+        repeat(2400) {
             val u = max(-1.0, min(1.0, (random() * 112 - 56) / lens))
             val point = Offset((CX + lens * sin(PI / 2 * u)).toFloat(), (44 + random() * 312).toFloat())
-            if (random() < 0.5) light += point else dark += point
+            val pick = random()
+            tones[if (pick < 0.03) 3 else if (pick < 0.33) 0 else if (pick < 0.6) 1 else 2] += point
         }
     }
 }
@@ -312,25 +313,30 @@ fun Hourglass(
         val pivot = Offset(CX.toFloat(), NECK_Y.toFloat())
         withTransform({
             translate(size.width / 2 - pivot.x, size.height / 2 - pivot.y)
+            scale(unit, unit, pivot)
+        }) { drawShadow(lying, sand) }
+        withTransform({
+            translate(size.width / 2 - pivot.x, size.height / 2 - pivot.y)
             rotate(angle, pivot)
             scale(unit, unit, pivot)
         }) {
             drawGlassBody(glass.first)
             clipPath(glass.second) {
                 if (abs(angle) < 0.5f) {
-                    drawRestingSand(p, crater, pile, running, sand, neckScale, speckles, time)
+                    drawRestingSand(p, crater, pile, running, sand, neckScale, speckles, time, glass.second)
                 } else {
                     val rad = Math.toRadians(angle.toDouble())
                     val upper = Physics.flatArea(true, Geo.topSandHeight(p))
                     val lower = Physics.flatArea(false, Geo.bottomSurfaceDistance(p))
                     for (outline in listOf(Physics.settled(true, upper, sin(rad), cos(rad)), Physics.settled(false, lower, sin(rad), cos(rad)))) {
-                        if (outline.size > 2) fillSand(polygon(outline), sand, speckles)
+                        if (outline.size > 2) fillSand(polygon(outline), sand, speckles, glass.second)
                     }
                 }
             }
             drawGlassFront(glass.first, glass.second)
             drawCap(top = true)
             drawCap(top = false)
+            drawCaustic(sand)
             printOnRing(display.time, Rect(19f, 354f, 181f, 382f), Rect(19f, 354f, 181f, 377f), 365.5f, 1f)
             // The project is a mark moulded into the top ring rather than a second display, so the eye goes to the time.
             display.project?.let { printOnRing(it, Rect(19f, 18f, 181f, 46f), Rect(19f, 23f, 181f, 46f), 34.5f, 0.42f) }
@@ -370,13 +376,72 @@ private fun DrawScope.drawGlassBody(outer: Path) {
 }
 
 private fun DrawScope.drawGlassFront(outer: Path, inner: Path) {
-    clipPath(inner) { drawHighlights() }
+    clipPath(inner) {
+        // Thick curved glass bends what's behind it: near the walls everything is seen through more glass, and darker.
+        drawPath(inner, Color.Black.copy(alpha = 0.1f), style = Stroke(14f))
+        drawPath(inner, Color.Black.copy(alpha = 0.08f), style = Stroke(6f))
+        drawHighlights()
+        drawWindowReflection()
+    }
     // The thickness of the wall, slightly darker where you look through more glass.
     drawPath(Path.combine(PathOperation.Difference, outer, inner), Color(0.45f, 0.45f, 0.45f, 0.16f))
     // A bright rim just inside the silhouette, where the curved glass catches the light.
     clipPath(outer) { drawPath(outer, Color.White.copy(alpha = 0.35f), style = Stroke(3f)) }
     drawPath(outer, Color(0.2f, 0.2f, 0.2f, 0.45f), style = Stroke(1.2f))
     drawPath(inner, Color.White.copy(alpha = 0.55f), style = Stroke(0.8f))
+}
+
+/** A window behind the viewer, reflected in the front of each bulb: two soft glows, upper left. */
+private fun DrawScope.drawWindowReflection() {
+    for (top in listOf(true, false)) {
+        val y = if (top) NECK_Y - 132 else NECK_Y + 40
+        for (x in listOf(CX - 39, CX - 27)) {
+            val oval = Rect(x.toFloat(), y.toFloat(), (x + 10).toFloat(), (y + 44).toFloat())
+            withTransform({ scale(1f, 4.4f, oval.center) }) {
+                drawCircle(
+                    Brush.radialGradient(0f to Color.White.copy(alpha = 0.16f), 0.55f to Color.White.copy(alpha = 0.07f),
+                        1f to Color.Transparent, center = oval.center, radius = 5f),
+                    radius = 5f, center = oval.center,
+                )
+            }
+        }
+    }
+}
+
+/** Light gathered by the glass and the sand onto the base beneath: a soft bright spot, tinted by the sand. */
+private fun DrawScope.drawCaustic(sand: Color) {
+    val tint = mix(sand, Color.White, 0.55f)
+    val center = Offset((CX + 4).toFloat(), (NECK_Y + Geo.HALF_LENGTH + 1.5).toFloat())
+    withTransform({ scale(1f, 6f / 76f, center) }) {
+        drawCircle(
+            Brush.radialGradient(0f to tint.copy(alpha = 0.4f), 0.6f to tint.copy(alpha = 0.12f), 1f to Color.Transparent,
+                center = center, radius = 38f),
+            radius = 38f, center = center,
+        )
+    }
+}
+
+/**
+ * The timer's shadow on the ground, upright whatever the glass does: a soft pool, darker where it touches, and beside
+ * it light that passed through the sand, faintly coloured by it. [lying] is 0 standing, 1 on its side.
+ */
+private fun DrawScope.drawShadow(lying: Float, sand: Color) {
+    val ground = (NECK_Y + 200 * (1 - lying) + 95 * lying).toFloat()
+    fun pool(x: Float, width: Float, height: Float, color: Color, alpha: Float) {
+        if (alpha < 0.005f) return
+        val center = Offset(x, ground)
+        withTransform({ scale(1f, height / width, center) }) {
+            drawCircle(
+                Brush.radialGradient(0f to color.copy(alpha = alpha), 0.35f to color.copy(alpha = alpha * 0.55f),
+                    0.7f to color.copy(alpha = alpha * 0.18f), 1f to Color.Transparent, center = center, radius = width / 2),
+                radius = width / 2, center = center,
+            )
+        }
+    }
+    val length = 186 + (400 - 186) * lying
+    pool(CX.toFloat(), length + 70, 26f, Color.Black, 0.35f)
+    pool(CX.toFloat(), 175f, 10f, Color.Black, 0.5f * max(0f, 1 - 2 * lying))
+    pool((CX + 70).toFloat(), 110f, 12f, mix(sand, Color.White, 0.3f), 0.16f * (1 - lying))
 }
 
 /** Soft reflections that follow the curve of each bulb. */
@@ -398,7 +463,7 @@ private fun DrawScope.drawHighlights() {
 }
 
 /** Sand shaded like a heap seen through round glass: dark at the walls, lit just off centre, with grains in it. */
-private fun DrawScope.fillSand(path: Path, sand: Color, speckles: Speckles) {
+private fun DrawScope.fillSand(path: Path, sand: Color, speckles: Speckles, inner: Path) {
     val b = path.getBounds()
     val edge = mix(sand, Color.Black, 0.45f)
     val lit = mix(sand, Color.White, 0.14f)
@@ -406,15 +471,25 @@ private fun DrawScope.fillSand(path: Path, sand: Color, speckles: Speckles) {
         0f to edge, 0.22f to sand, 0.45f to lit, 0.78f to sand, 1f to edge, startX = b.left, endX = b.right,
     ))
     clipPath(path) {
-        drawPoints(speckles.light, PointMode.Points, mix(sand, Color.White, 0.4f).copy(alpha = 0.55f), 1.3f, StrokeCap.Square)
-        drawPoints(speckles.dark, PointMode.Points, mix(sand, Color.Black, 0.45f).copy(alpha = 0.5f), 1.3f, StrokeCap.Square)
+        val tones = listOf(
+            mix(sand, Color.Black, 0.5f).copy(alpha = 0.55f) to 1.3f, mix(sand, Color.Black, 0.25f).copy(alpha = 0.45f) to 1.1f,
+            mix(sand, Color.White, 0.4f).copy(alpha = 0.55f) to 1.2f, Color.White.copy(alpha = 0.75f) to 0.8f,
+        )
+        tones.forEachIndexed { i, (color, width) -> drawPoints(speckles.tones[i], PointMode.Points, color, width, StrokeCap.Square) }
+        // Lit from above: the top of each heap catches the light.
+        drawRect(
+            Brush.verticalGradient(0f to Color.White.copy(alpha = 0.16f), 1f to Color.Transparent, startY = b.top, endY = b.top + 12),
+            Offset(b.left, b.top), Size(b.width, 12f),
+        )
+        // Where the sand presses against the glass it's in shade: a darker band along the wall.
+        drawPath(inner, edge.copy(alpha = 0.4f), style = Stroke(7f))
     }
 }
 
 /** Standing up: the crater draining into the neck, the stream, and the pile building below. */
 private fun DrawScope.drawRestingSand(
     p: Double, crater: Physics.Crater, pile: Physics.Pile, running: Boolean, sand: Color, neckScale: Double,
-    speckles: Speckles, time: Double,
+    speckles: Speckles, time: Double, inner: Path,
 ) {
     val bottomY = NECK_Y + Geo.HALF_LENGTH
     val flatTop = Geo.topSandHeight(p)
@@ -444,8 +519,8 @@ private fun DrawScope.drawRestingSand(
         close()
     }
 
-    if (flatTop > 0.3) fillSand(region(::topY, NECK_Y + 1, NECK_Y + 1, pouring), sand, speckles)
-    if (Geo.sandVolume * p > 1) fillSand(region(::bottomYAt, bottomY + 8, bottomY + 1, false), sand, speckles)
+    if (flatTop > 0.3) fillSand(region(::topY, NECK_Y + 1, NECK_Y + 1, pouring), sand, speckles, inner)
+    if (Geo.sandVolume * p > 1) fillSand(region(::bottomYAt, bottomY + 8, bottomY + 1, false), sand, speckles, inner)
     if (!pouring) return
 
     val light = mix(sand, Color.White, 0.45f)

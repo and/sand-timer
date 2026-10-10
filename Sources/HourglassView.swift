@@ -461,7 +461,8 @@ final class HourglassView: NSView {
         }
         ctx.saveGState()
         placeTimer(rotated: false)
-        renderer.drawShadow(groundOffset: CGFloat(groundOffset), lying: CGFloat(abs(sin(angle))), strength: CGFloat(strength))
+        renderer.drawShadow(groundOffset: CGFloat(groundOffset), lying: CGFloat(abs(sin(angle))), strength: CGFloat(strength),
+                            sand: theme.sand)
         ctx.restoreGState()
 
         ctx.saveGState()
