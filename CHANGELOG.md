@@ -3,9 +3,11 @@
 Every release of Sand Timer, newest first. Each one can be downloaded from its
 [release page](https://github.com/and/sand-timer/releases).
 
-## Unreleased
+## 1.11.0 — 2026-10-10
 - **Do Not Disturb while the sand runs.** Turn on **Focus** in Settings and make two shortcuts in the Shortcuts app, **Sand Timer Focus On** and **Sand Timer Focus Off**, each with a **Set Focus** action. The timer runs the first as the sand starts and the second when it stops, and an iPhone sharing Focus with the Mac follows.
 - **Sand Timer for iPhone and Android, and linking your phone.** The new phone apps put the Mac's glass on your phone, drawn the same way: tap to flip, tap to pause, with projects, a daily target, a chime, a countdown notification and its own Statistics. The screen stays on while the sand runs, and on Android the timer can turn on Do Not Disturb until it stops, and everything but the glass fades away while the phone lies still. Optionally, link the phone to your Mac with a QR code: turn on **Link with a phone** in **Settings…** and click **Link a Phone…**. Near each other, the two then share one timer over Bluetooth (start, pause or end it on either), one list of projects, and each other's time in Statistics, toward the daily target and in what Claude reads. A session is counted once, by the device that started it. Everything goes straight between your devices, encrypted, with no internet involved, and neither app touches Bluetooth until linking is turned on.
+
+- **Settings in tabs**: General, Projects, Sound, and Phone & Focus, so the window fits on screen. **Sound Settings…** and **Manage Projects…** open on their tab.
 
 ## 1.10.0 — 2026-10-05
 - **A welcome for new installs.** The first launch shows how the timer is worked and offers a few optional choices — projects to begin with, what to hear while the sand runs, and Start at Login — then starts the first timer. **Getting Started…** in the right-click menu brings it back. Updating from an earlier version doesn't show it.
