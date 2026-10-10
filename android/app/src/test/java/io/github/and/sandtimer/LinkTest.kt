@@ -134,6 +134,18 @@ class LinkTest {
         assertTrue(phone.engine.linkedLogs.isEmpty())
     }
 
+    @Test fun `lists that say the same agree, whatever the order, a stamp's last digit or a doubled id`() {
+        val a = Project("a", "A", "#111111", updated = 1_760_000_000.123)
+        val b = Project("b", "B", "#222222", updated = 1_760_000_000.5)
+        val mine = ProjectList(listOf(a, b))
+        val theirs = ProjectList(listOf(b, a.copy(updated = a.updated + 0.0000003)))
+        assertTrue(mine.agrees(theirs) && theirs.agrees(mine) && mine.merged(theirs).agrees(mine))
+        val twice = ProjectList(listOf(a, b, a.copy(name = "A again")))
+        assertTrue(twice.agrees(mine))
+        assertEquals(2, twice.merged(mine).all.size)
+        assertFalse(mine.agrees(ProjectList(listOf(a.copy(name = "Changed", updated = a.updated + 1), b))))
+    }
+
     @Test fun `linking stays off, Bluetooth untouched, until it's turned on`() {
         val wire = Wire()
         val phone = Device("phone", false, wire) { 0.0 }

@@ -263,6 +263,41 @@ func linkTests() {
             }
         }
 
+        test("lists that say the same settle at once, whatever the order or a stamp's last digit") {
+            let now = Date()
+            let a = Project(id: "a", name: "A", color: "#111111", updated: now)
+            let b = Project(id: "b", name: "B", color: "#222222", updated: now.addingTimeInterval(-60))
+            let mine = ProjectList(all: [a, b])
+            // As another device writes it back: seconds since 1970, a hair off, in its own order.
+            var theirs = ProjectList(all: [b, a])
+            theirs.all[1].updated = Date(timeIntervalSince1970: now.timeIntervalSince1970 + 0.0000003)
+            expect(mine.agrees(with: theirs) && theirs.agrees(with: mine))
+            expect(mine.merged(with: theirs).agrees(with: mine), "nothing taken from a copy of itself")
+            var renamed = theirs
+            renamed.all[1].name = "Changed"
+            renamed.all[1].updated = now.addingTimeInterval(1)
+            expect(!mine.agrees(with: renamed) && mine.merged(with: renamed).project("a")?.name == "Changed")
+            let twice = ProjectList(all: [a, b, Project(id: "a", name: "A again", color: "#333333", updated: now)])
+            expect(twice.agrees(with: mine) && twice.merged(with: mine).all.count == 2, "a second copy of an id doesn't count")
+            expect(ProjectList.load(stored: twice.all.map(\.stored)).all.map(\.name) == ["A", "B"], "and isn't loaded")
+        }
+
+        test("two devices with the same projects in another order stop talking") {
+            try MainActor.assumeIsolated {
+                let wire = TestWire()
+                let mac = try wire.device("mac", hub: true)
+                let phone = try wire.device("phone", hub: false)
+                let now = Date()
+                let projects = (0..<4).map { Project(id: "p\($0)", name: "P\($0)", color: "#111111", updated: now.addingTimeInterval(Double($0) * 0.37)) }
+                mac.host.projects = ProjectList(all: projects)
+                phone.host.projects = ProjectList(all: projects.reversed())
+                try phone.engine.link(code: try mac.engine.linkCode())
+                wire.connect(phone, to: mac)
+                wire.pump(limit: 200)
+                expect(wire.queue.isEmpty && wire.delivered < 50, "settled in \(wire.delivered) messages")
+            }
+        }
+
         test("a stranger's messages are ignored") {
             try MainActor.assumeIsolated {
                 let wire = TestWire()
@@ -354,8 +389,10 @@ final class TestWire {
         phone.engine.disconnected(peer: mac.name)
     }
 
-    func pump() {
-        while !queue.isEmpty {
+    func pump(limit: Int = .max) {
+        var left = limit
+        while !queue.isEmpty && left > 0 {
+            left -= 1
             let next = queue.removeFirst()
             delivered += 1
             devices[next.to]?.engine.received(next.message, from: next.from)

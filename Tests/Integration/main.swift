@@ -9,4 +9,5 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 timerViewTests()
+linkedTimerTests()
 TestKit.finish()

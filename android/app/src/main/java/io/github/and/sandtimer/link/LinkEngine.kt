@@ -327,11 +327,12 @@ class LinkEngine(
         val host = host ?: return
         val theirs = ProjectList.fromJson(value as? JsonArray ?: return)
         val merged = host.projects.merged(theirs)
-        if (merged != host.projects) {
+        if (!merged.agrees(host.projects)) {
             host.takeLinkedProjects(merged)
             if (isHub) broadcast(message("projects") { put("projects", merged.toJson()) }, except = peer)
         }
-        if (merged != theirs) send(message("projects") { put("projects", merged.toJson()) }, peer)
+        // Only a list that says something new goes back, or two devices would send it to and fro for ever.
+        if (!merged.agrees(theirs)) send(message("projects") { put("projects", merged.toJson()) }, peer)
     }
 
     /** The other side's timer: taken on if it's the later change, otherwise ours goes back to it. */

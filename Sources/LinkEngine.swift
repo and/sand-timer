@@ -295,11 +295,12 @@ final class LinkEngine {
         guard let host, let stored = value as? [[String: Any]] else { return }
         let theirs = ProjectList.load(stored: stored)
         let merged = host.projects.merged(with: theirs)
-        if merged != host.projects {
+        if !merged.agrees(with: host.projects) {
             host.takeLinkedProjects(merged)
             if isHub { broadcast(["t": "projects", "projects": merged.all.map(\.stored)], except: peer) }
         }
-        if merged != theirs { send(["t": "projects", "projects": merged.all.map(\.stored)], to: peer) }
+        // Only a list that says something new goes back, or two devices would send it to and fro for ever.
+        if !merged.agrees(with: theirs) { send(["t": "projects", "projects": merged.all.map(\.stored)], to: peer) }
     }
 
     /// The other side's timer: taken on if it's the later change, otherwise ours goes back to it.

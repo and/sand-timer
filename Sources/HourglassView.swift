@@ -225,6 +225,7 @@ final class HourglassView: NSView {
             publishState()  // the sand has run out: anything reading from outside should know
         }
         wasRunning = running
+        if running, let finish = clock.finishTime, abs(finish.timeIntervalSince(publishedFinish ?? finish)) > 1 { publishState() }
         recordRun(finished: finished, at: now)
         let elapsed = running ? clock.progress(at: now) * clock.duration : nil
         if let elapsed, let lastElapsed, clock.minuteChimeDue(from: lastElapsed, to: elapsed), minuteChimesOn {
@@ -655,6 +656,7 @@ final class HourglassView: NSView {
         if clock.isPaused(at: now) {
             clock.resume(at: now)
             releasedAt = now.addingTimeInterval(SandPhysics.releaseDelay)
+            publishState()  // standing again is a resume, which a linked phone follows
         }
     }
 
@@ -697,7 +699,10 @@ final class HourglassView: NSView {
     /// Past the tipping point: it topples onto its side from where it leans, and pauses like being knocked over.
     private func topple(from current: Lean) {
         let now = Date()
-        if clock.isRunning(at: now) { clock.pause(at: now) }
+        if clock.isRunning(at: now) {
+            clock.pause(at: now)
+            publishState()  // knocked over is a pause, which a linked phone follows
+        }
         lean = nil
         rocking = nil
         topGrab = nil
@@ -1099,9 +1104,15 @@ final class HourglassView: NSView {
     /// Writes down what the timer is doing now, so the MCP server can answer without asking the app, and tells a
     /// linked phone.
     func publishState() {
-        UserDefaults.standard.set(currentState(at: Date()).stored, forKey: TimerState.key)
+        let state = currentState(at: Date())
+        UserDefaults.standard.set(state.stored, forKey: TimerState.key)
+        publishedFinish = state.runningUntil
         link?.timerChanged()
     }
+
+    /// When the sand was last said to run out. Leaning the glass or shaking it changes how fast the sand falls, so
+    /// the tick says so again once that has moved by more than a second.
+    private var publishedFinish: Date?
 
     private func currentState(at now: Date) -> TimerState {
         var state = TimerState(minutes: minutes, updated: now, project: activeProjectID)

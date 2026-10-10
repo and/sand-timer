@@ -3,6 +3,10 @@
 Every release of Sand Timer, newest first. Each one can be downloaded from its
 [release page](https://github.com/and/sand-timer/releases).
 
+## 1.12.1 — 2026-10-10
+- **A linked phone follows the glass however it's knocked over.** Toppling the Mac's timer pauses it, and standing it back up resumes it, and now a linked phone does the same, whichever way it fell. Leaning the glass, which slows the sand, also keeps the phone's countdown in step.
+- **Linked devices stop talking once they agree.** Projects listed in a different order, or a project saved twice, could keep a Mac and a phone sending the list back and forth.
+
 ## 1.12.0 — 2026-10-10
 - **The glass looks more like the real thing.** Sand in grains of several tones with the odd glint, lit from above and shaded where it presses on the glass; walls that darken through thicker glass, a window's soft reflection, light gathered onto the base, and a faint sand-coloured glow beside the shadow. The phones get the shadow too.
 - **The clean view on iPhone too**, and on both phones the glass moves to the middle of the screen as the rest fades.

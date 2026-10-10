@@ -93,10 +93,11 @@ struct ProjectList: Equatable {
     /// This list and a linked device's put together: every project either knows, each as it was last changed — the
     /// later `updated` wins, and on a tie this list's — in this list's order, with the ones only `other` has after them.
     func merged(with other: ProjectList) -> ProjectList {
-        var list = self
+        var list = deduplicated
         for theirs in other.all {
             if let index = list.all.firstIndex(where: { $0.id == theirs.id }) {
-                if theirs.updated > list.all[index].updated { list.all[index] = theirs }
+                // A stamp a hair later is the same stamp after a trip through another device's numbers, not a change.
+                if theirs.updated.timeIntervalSince(list.all[index].updated) > Self.sameMoment { list.all[index] = theirs }
             } else {
                 list.all.append(theirs)
             }
@@ -104,8 +105,28 @@ struct ProjectList: Equatable {
         return list
     }
 
+    /// Stamps this close together are the same moment, written down by two devices.
+    static let sameMoment: TimeInterval = 0.001
+
+    /// Whether two lists say the same about every project, in whatever order and however each device wrote the stamps:
+    /// when they do, there is nothing to send.
+    func agrees(with other: ProjectList) -> Bool {
+        let mine = deduplicated, other = other.deduplicated
+        guard mine.all.count == other.all.count else { return false }
+        return mine.all.allSatisfy { mine in
+            guard let theirs = other.project(mine.id) else { return false }
+            return mine.sameAs(theirs) && abs(mine.updated.timeIntervalSince(theirs.updated)) <= Self.sameMoment
+        }
+    }
+
     static func load(stored: [[String: Any]]?) -> ProjectList {
-        ProjectList(all: (stored ?? []).compactMap(Project.init(stored:)))
+        ProjectList(all: (stored ?? []).compactMap(Project.init(stored:))).deduplicated
+    }
+
+    /// Each project once: a second copy of an id, however it came about, is dropped, the first one kept.
+    var deduplicated: ProjectList {
+        var seen = Set<String>()
+        return ProjectList(all: all.filter { seen.insert($0.id).inserted })
     }
 
     static func load(from defaults: UserDefaults = .standard) -> ProjectList {

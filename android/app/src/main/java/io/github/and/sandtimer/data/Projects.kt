@@ -76,13 +76,33 @@ data class ProjectList(val all: List<Project> = emptyList()) {
      * later `updated` wins, and on a tie this list's), in this list's order, then the ones only [other] has.
      */
     fun merged(other: ProjectList): ProjectList {
-        val list = all.toMutableList()
+        val list = deduplicated().all.toMutableList()
         for (theirs in other.all) {
             val index = list.indexOfFirst { it.id == theirs.id }
-            if (index < 0) list += theirs else if (theirs.updated > list[index].updated) list[index] = theirs
+            // A stamp a hair later is the same stamp after a trip through another device's numbers, not a change.
+            if (index < 0) list += theirs else if (theirs.updated - list[index].updated > SAME_MOMENT) list[index] = theirs
         }
         return ProjectList(list)
     }
+
+    /**
+     * Whether two lists say the same about every project, in whatever order and however each device wrote the
+     * stamps: when they do, there is nothing to send.
+     */
+    fun agrees(other: ProjectList): Boolean {
+        val mine = deduplicated().all
+        val theirs = other.deduplicated()
+        return mine.size == theirs.all.size && mine.all { agreesWith(it, theirs.project(it.id)) }
+    }
+
+    /** Each project once: a second copy of an id, however it came about, is dropped, the first one kept. */
+    fun deduplicated(): ProjectList {
+        val seen = HashSet<String>()
+        return ProjectList(all.filter { seen.add(it.id) })
+    }
+
+    private fun agreesWith(mine: Project, theirs: Project?): Boolean =
+        theirs != null && mine.sameAs(theirs) && kotlin.math.abs(mine.updated - theirs.updated) <= SAME_MOMENT
 
     fun toJson() = JsonArray(all.map { it.toJson() })
 
@@ -95,9 +115,11 @@ data class ProjectList(val all: List<Project> = emptyList()) {
 
     companion object {
         const val UNTITLED = "No project"
+        /** Stamps this close together, in seconds, are the same moment written down by two devices. */
+        const val SAME_MOMENT = 0.001
 
         fun fromJson(array: JsonArray?): ProjectList =
-            ProjectList(array.orEmpty().mapNotNull { runCatching { Project.fromJson(it.jsonObject) }.getOrNull() })
+            ProjectList(array.orEmpty().mapNotNull { runCatching { Project.fromJson(it.jsonObject) }.getOrNull() }).deduplicated()
 
         /** Colours for new projects, the Mac's sand colours first. */
         val palette = listOf(
