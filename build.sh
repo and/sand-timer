@@ -68,7 +68,7 @@ if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
   exit $run_status
 fi
 
-VERSION=1.11.0
+VERSION=1.12.0
 # The app's identity. It was local.sandtimer up to 1.8.0; the app carries settings and the record over from that on
 # its first launch (Sources/PreferencesMove.swift), and the MCP server reads the same name (Tools/SandTimerMCP/main.swift).
 BUNDLE_ID=io.github.and.SandTimer
