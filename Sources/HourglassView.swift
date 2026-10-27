@@ -857,6 +857,9 @@ final class HourglassView: NSView {
         let now = Date()
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // First, so hiding is one short reach from wherever the menu opens.
+        menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))
+        menu.addItem(.separator())
         let status = NSMenuItem(title: statusText(at: now), action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -870,7 +873,6 @@ final class HourglassView: NSView {
         if lyingAngle == 0 { menu.addItem(item("Flip", #selector(flipClicked))) }
         menu.addItem(item("Restart", #selector(restartClicked)))
         if clock.isRunning(at: now) || clock.isPaused(at: now) { menu.addItem(item("End Session", #selector(endClicked))) }
-        menu.addItem(item("Hide to Menu Bar", #selector(hideClicked)))  // something to do with the timer, not a setting
         menu.addItem(.separator())
 
         // Duration is chosen often enough to stay to hand; how the timer looks is set once and then left alone.

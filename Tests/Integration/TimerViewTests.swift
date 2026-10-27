@@ -301,9 +301,7 @@ func timerViewTests() {
             let looks = try require(items.first { $0.title == "Appearance" }?.submenu?.items, "the Appearance submenu")
             expect(looks.map(\.title) == ["Color", "Base", "Size"], "got \(looks.map(\.title))")
             expect(looks.allSatisfy { $0.submenu?.items.isEmpty == false }, "each opens onto its own choices")
-            let hide = try require(titles.firstIndex(of: "Hide to Menu Bar"), "Hide to Menu Bar")
-            let duration = try require(titles.firstIndex(of: "Duration"), "Duration")
-            expect(hide < duration, "hiding it is something to do with the timer, so it sits with Flip and Restart")
+            expect(titles.first == "Hide to Menu Bar", "hiding it is the first item, above the status line: \(titles)")
         }
         test("Falling Sand is heard at the chosen volume, and anything else silences it", serial: true) {
             let timer = TimerHarness(minutes: 25)
