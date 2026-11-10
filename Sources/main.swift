@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ) { [weak self] _ in
             // The window is dropped a moment after the switch settles, so ask again once it has, not only at the start.
             for delay in [0.0, 0.3, 1.0] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.bringBack() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self?.bringBack(force: true) }
             }
         }
         // And whenever macOS reports the timer as no longer on screen while it ought to be, whichever desktop that is.
@@ -106,8 +106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Puts the timer back on screen if it has gone missing. Clearing the behaviour first makes macOS forget the
     /// stale place it has for the window, so that setting it again registers the window afresh on this desktop.
-    private func bringBack() {
-        guard let panel, statusItem == nil, !panel.occlusionState.contains(.visible) else { return }  // nothing to show while it's in the menu bar
+    /// On a desktop change it is `force`d: the window's occlusion state is not trustworthy then — a window that has
+    /// lost its place on the new desktop can still report itself visible — so it is registered afresh every time.
+    private func bringBack(force: Bool = false) {
+        guard let panel, statusItem == nil, force || !panel.occlusionState.contains(.visible) else { return }  // nothing to show while it's in the menu bar
         panel.collectionBehavior = []
         panel.collectionBehavior = Self.everyDesktop
         panel.orderFrontRegardless()
