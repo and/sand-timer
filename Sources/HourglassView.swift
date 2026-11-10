@@ -216,6 +216,9 @@ final class HourglassView: NSView {
         // The focus noise plays while the sand runs, and fades away on a pause, an end or the sand running out.
         FocusNoise.shared.setSessionRunning(running)
         FocusShortcuts.shared.setSessionRunning(running)  // Do Not Disturb, when turned on in Settings
+        // The calendar entry for this stretch of sand, when turned on in Settings.
+        CalendarLog.shared.update(running: running, session: sessionStartedAt, finish: clock.finishTime,
+                                  project: projects.project(activeProjectID)?.name ?? "Sand Timer", at: now)
         let finished = wasRunning && !running && clock.progress(at: now) >= 1
         if soundOn && finished {
             NSSound(named: "Glass")?.play()

@@ -2,6 +2,7 @@
 clockTests()
 statsTests()
 projectTests()
+calendarTests()
 linkTests()
 mcpTests()
 updateTests()

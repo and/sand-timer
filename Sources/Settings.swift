@@ -9,7 +9,7 @@ final class SettingsPanel: NSPanel, NSWindowDelegate {
 
     let settings = SettingsView()
 
-    /// Opens the window, on a given page if asked (0 General, 1 Projects, 2 Sound, 3 Phone & Focus).
+    /// Opens the window, on a given page if asked (0 General, 1 Projects, 2 Sound, 3 Phone & Focus, 4 Calendar).
     static func show(for view: HourglassView, page: Int? = nil) {
         let panel = shared ?? SettingsPanel()
         shared = panel
@@ -73,7 +73,7 @@ final class SettingsView: NSView {
     /// The tabs along the top, and the page each one shows.
     let tabs = NSSegmentedControl()
     private var pages: [NSStackView] = []
-    private static let tabTitles = ["General", "Projects", "Sound", "Phone & Focus"]
+    private static let tabTitles = ["General", "Projects", "Sound", "Phone & Focus", "Calendar"]
     private static let tabKey = "settingsTab"
     private static let width: CGFloat = 420
     /// The switches, by what they are called.
@@ -98,6 +98,10 @@ final class SettingsView: NSView {
     let linkButton = NSButton(title: "Link a Phone…", target: nil, action: nil)
     let unlinkButton = NSButton(title: "Unlink All", target: nil, action: nil)
     let linkStatus = NSTextField(wrappingLabelWithString: "")
+    /// Putting each stretch of sand on the calendar: the switch, which calendar, and what is going on with access.
+    let calendarSwitch = NSButton(checkboxWithTitle: "Add each session to my calendar", target: nil, action: nil)
+    let calendarPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    let calendarStatus = NSTextField(wrappingLabelWithString: "")
     /// The line under One Thing at a Time saying what it does.
     private var oneThingNote: NSTextField?
 
@@ -238,6 +242,19 @@ final class SettingsView: NSView {
         focusButton.controlSize = .small
         let focusDivider = NSBox.separator()
 
+        // The calendar: an entry for each stretch of sand, cut short when it is paused.
+        let calendarTitle = NSTextField(labelWithString: "Calendar")
+        calendarTitle.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let calendarHint = Self.note("Starting the sand adds an entry named for the project, from now until the sand is due "
+                                     + "to run out. Pausing shortens it to the moment you paused; resuming adds another, "
+                                     + "named “project - resume”.")
+        calendarSwitch.target = self
+        calendarSwitch.action = #selector(calendarToggled)
+        calendarPicker.target = self
+        calendarPicker.action = #selector(calendarPicked)
+        calendarStatus.font = .systemFont(ofSize: 11)
+        calendarStatus.textColor = .secondaryLabelColor
+
         let divider = NSBox.separator()
         var general: [NSView] = [targetRow, targetHint, divider]
         var projectsPage: [NSView] = [projectsTitle, projectsHint, projectScroll, addProjectButton]
@@ -260,6 +277,8 @@ final class SettingsView: NSView {
         let phone: [NSView] = [linkTitle, linkHint, linkSwitch, linkStatus, linkRow, focusDivider,
                                focusTitle, focusHint, focusSwitch, focusStatus, focusButton]
 
+        let calendar: [NSView] = [calendarTitle, calendarHint, calendarSwitch, calendarPicker, calendarStatus]
+
         // Everything already applies as it is changed; Save is for the number still being typed, and closes the window.
         saveButton.target = self
         saveButton.action = #selector(saveClicked)
@@ -269,7 +288,7 @@ final class SettingsView: NSView {
         saveRow.distribution = .fill
 
         // A page for each kind of setting, so the window stays short enough to see whole.
-        pages = [general, projectsPage, sound, phone].map { views in
+        pages = [general, projectsPage, sound, phone, calendar].map { views in
             let page = NSStackView(views: views)
             page.orientation = .vertical
             page.alignment = .leading
@@ -288,6 +307,10 @@ final class SettingsView: NSView {
         space(6, after: linkHint)
         space(6, after: linkSwitch)
         space(8, after: linkStatus)
+        space(4, after: calendarTitle)
+        space(6, after: calendarHint)
+        space(6, after: calendarSwitch)
+        space(6, after: calendarPicker)
         space(4, after: focusTitle)
         space(6, after: focusHint)
         space(6, after: focusSwitch)
@@ -324,6 +347,8 @@ final class SettingsView: NSView {
             linkStatus.widthAnchor.constraint(equalToConstant: inner),
             focusHint.widthAnchor.constraint(equalToConstant: inner),
             focusStatus.widthAnchor.constraint(equalToConstant: inner),
+            calendarHint.widthAnchor.constraint(equalToConstant: inner),
+            calendarStatus.widthAnchor.constraint(equalToConstant: inner),
             projectsHint.widthAnchor.constraint(equalToConstant: inner),
             projectScroll.widthAnchor.constraint(equalToConstant: inner),
             saveRow.widthAnchor.constraint(equalToConstant: inner),
@@ -380,6 +405,51 @@ final class SettingsView: NSView {
         reloadNoise()
         reloadLink()
         reloadFocus()
+        reloadCalendar()
+    }
+
+    // MARK: Calendar
+
+    private func reloadCalendar() {
+        let log = CalendarLog.shared
+        let granted = EventKitStore.hasAccess
+        calendarSwitch.state = log.isEnabled ? .on : .off
+        calendarPicker.isHidden = !log.isEnabled || !granted
+        calendarStatus.isHidden = !log.isEnabled
+        calendarPicker.removeAllItems()
+        guard log.isEnabled else { return }
+        guard granted, let store = log.store as? EventKitStore else {
+            calendarStatus.stringValue = "Sand Timer can't see your calendar. Allow it in System Settings › Privacy & Security › Calendars."
+            return
+        }
+        let calendars = store.calendars
+        for entry in calendars {
+            calendarPicker.addItem(withTitle: entry.name)
+            calendarPicker.lastItem?.representedObject = entry.id
+        }
+        let saved = UserDefaults.standard.string(forKey: CalendarLog.calendarKey)
+        if let at = calendars.firstIndex(where: { $0.id == saved }) { calendarPicker.selectItem(at: at) }
+        calendarStatus.stringValue = "Entries go in the calendar above."
+    }
+
+    @objc func calendarToggled() {
+        let log = CalendarLog.shared
+        guard calendarSwitch.state == .on else {
+            log.setEnabled(false)
+            reload()
+            return
+        }
+        guard let store = log.store as? EventKitStore else { log.setEnabled(true); reload(); return }
+        store.requestAccess { [weak self] _ in
+            // On even when refused: the page then says how to allow it, and entries start once it is allowed.
+            log.setEnabled(true)
+            self?.reload()
+        }
+    }
+
+    @objc func calendarPicked() {
+        guard let id = calendarPicker.selectedItem?.representedObject as? String else { return }
+        UserDefaults.standard.set(id, forKey: CalendarLog.calendarKey)
     }
 
     // MARK: Focus

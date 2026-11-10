@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p build
 
 if [[ "${1:-}" == "test" || "${1:-}" == "test-unit" ]]; then
-  APP_SOURCES=(Sources/FocusNoise.swift Sources/FocusShortcuts.swift Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/Welcome.swift Sources/LinkFormat.swift Sources/LinkEngine.swift Sources/Link.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
+  APP_SOURCES=(Sources/FocusNoise.swift Sources/FocusShortcuts.swift Sources/CalendarLog.swift Sources/Model.swift Sources/PreferencesMove.swift Sources/Projects.swift Sources/Stats.swift Sources/Updates.swift Sources/SandPhysics.swift Sources/Sounds.swift Sources/HourglassRenderer.swift Sources/StatsWindow.swift Sources/Settings.swift Sources/Welcome.swift Sources/LinkFormat.swift Sources/LinkEngine.swift Sources/Link.swift Sources/HourglassView.swift Sources/TimerState.swift Tools/SandTimerMCP/Server.swift)
   FILTER="${2:-}"
   SHARDS="${SHARDS:-4}"
   started=$SECONDS
@@ -122,6 +122,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleURLSchemes</key><array><string>sandtimer</string></array>
   </dict></array>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Sand Timer adds an entry to your calendar for each stretch of time the sand runs, and shortens it when you pause.</string>
+  <key>NSCalendarsUsageDescription</key><string>Sand Timer adds an entry to your calendar for each stretch of time the sand runs, and shortens it when you pause.</string>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Sand Timer uses Bluetooth to share the timer, your projects and statistics with Sand Timer on your linked phone.</string>
 </dict>
 </plist>
@@ -130,7 +132,7 @@ PLIST
 if [[ "${1:-}" != "release" ]]; then
   # The helper is signed first: signing the bundle seals what is inside it.
   codesign --force --sign - "$APP/Contents/MacOS/sand-timer-mcp" >/dev/null 2>&1
-  codesign --force --sign - "$APP" >/dev/null 2>&1
+  codesign --force --sign - --entitlements Sand\ Timer.entitlements "$APP" >/dev/null 2>&1
   echo "Built $APP"
   exit
 fi
@@ -168,7 +170,7 @@ submit_for_notarization() {
 }
 # Inside out: a nested program has to carry its own signature before the bundle is sealed around it.
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP/Contents/MacOS/sand-timer-mcp"
-codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+codesign --force --options runtime --timestamp --entitlements Sand\ Timer.entitlements --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
 # Notarize the app before packaging, so the ticket travels inside the disk
